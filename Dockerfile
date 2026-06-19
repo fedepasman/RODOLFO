@@ -13,21 +13,21 @@ FROM docker.n8n.io/n8nio/n8n:2.26.8
 
 USER root
 
-# Chromium + fuentes (incluye soporte de tildes, ñ y emojis para los títulos)
-RUN apk add --no-cache \
-      chromium \
-      nss \
-      freetype \
-      harfbuzz \
+# Chromium + deps para Puppeteer (Debian-based)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      chromium-browser \
+      chromium-common \
+      libxss1 \
+      libnss3 \
+      libfreetype6 \
+      libharfbuzz0b \
       ca-certificates \
-      ttf-freefont \
-      font-noto \
-      font-noto-emoji \
-  # Crear symlink para que Puppeteer lo encuentre como chromium-browser
-  && ln -sf /usr/bin/chromium /usr/bin/chromium-browser
+      fonts-noto \
+      fonts-noto-cjk \
+      fonts-liberation \
+  && rm -rf /var/lib/apt/lists/*
 
 # Puppeteer usa el Chromium del sistema y NO intenta descargar el suyo
-# (la descarga fallaría en Alpine y rompería el install del community node).
 ENV PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
     N8N_REINSTALL_MISSING_PACKAGES=true

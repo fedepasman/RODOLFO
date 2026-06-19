@@ -13,7 +13,7 @@ import {
   getSeguimiento,
   getHistorialEstado,
 } from "@/lib/actions/licitaciones";
-import { PORTAL_LABEL, ESTADO_LABEL, RUBROS } from "@/types/licitaciones";
+import { PORTAL_LABEL, ESTADO_LABEL, RUBROS, type Portal } from "@/types/licitaciones";
 
 export default async function LicitacionDetallePage({
   params,
@@ -55,15 +55,7 @@ export default async function LicitacionDetallePage({
           <span className="text-xs text-muted-foreground">{lic.numero}</span>
         </div>
         <h1 className="text-2xl font-semibold leading-snug">{lic.titulo}</h1>
-        <a
-          href={lic.url ?? "#"}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-sm text-primary hover:underline w-fit"
-        >
-          Ver en {PORTAL_LABEL[lic.portal]}
-          <ExternalLink className="size-3.5" />
-        </a>
+        <PortalLink url={lic.url} portal={lic.portal} numero={lic.numero} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -152,6 +144,28 @@ export default async function LicitacionDetallePage({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+const PORTAL_HOME: Record<Portal, string> = {
+  nacional: "https://comprar.gob.ar",
+  caba: "https://buenosairescompras.gob.ar",
+  provincia: "https://pbac.cgp.gba.gov.ar",
+};
+
+function PortalLink({ url, portal, numero }: { url: string | null; portal: Portal; numero: string }) {
+  const GENERIC_URLS = ["https://comprar.gob.ar/Compras.aspx", "https://buenosairescompras.gob.ar/BuscarAvanzado.aspx"];
+  const href = url && !GENERIC_URLS.includes(url) ? url : PORTAL_HOME[portal];
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 text-sm text-primary hover:underline w-fit"
+    >
+      Ver en {PORTAL_LABEL[portal]}
+      <ExternalLink className="size-3.5" />
+    </a>
   );
 }
 
