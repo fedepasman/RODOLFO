@@ -1,0 +1,121 @@
+{
+  "id": "srvQpSkNQMS80ZbA",
+  "name": "Licitaciones ComprAR - Importación Diaria",
+  "active": true,
+  "nodes": [
+    {
+      "name": "Cron Diario",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "notes": "Lunes a viernes 8am Buenos Aires (11:00 UTC). Cron: 0 11 * * 1-5"
+    },
+    {
+      "name": "Preparar Fechas",
+      "type": "n8n-nodes-base.code",
+      "notes": "Calcula ayer y hoy en DD/MM/YYYY e ISO (YYYY-MM-DD) para filtrar ComprAR por fecha de publicación.",
+      "code": "const now = new Date();\nconst ayer = new Date(now);\nayer.setDate(ayer.getDate() - 1);\nconst pad = n => String(n).padStart(2, '0');\nconst fmt = d => `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;\nconst iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;\nreturn [{ json: {\n  fechaAyerDisplay: fmt(ayer),\n  fechaHoyDisplay: fmt(now),\n  fechaAyerISO: iso(ayer),\n  fechaHoyISO: iso(now)\n}}];"
+    },
+    {
+      "name": "GET ComprAR",
+      "type": "n8n-nodes-base.httpRequest",
+      "notes": "GET https://comprar.gob.ar/Compras.aspx con params fechaDesde/fechaHasta. Devuelve HTML con ViewState ASP.NET."
+    },
+    {
+      "name": "Extraer ViewState",
+      "type": "n8n-nodes-base.code",
+      "notes": "Extrae __VIEWSTATE, __EVENTVALIDATION y el ID del botón Excel del HTML de ASP.NET WebForms. El excelTarget se usa en el POST para disparar la descarga."
+    },
+    {
+      "name": "Descargar Excel",
+      "type": "n8n-nodes-base.httpRequest",
+      "notes": "POST a ComprAR con ViewState + ID botón Excel → descarga el reporte XLS/XLSX completo (todos los resultados sin paginación)."
+    },
+    {
+      "name": "Parsear Excel",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "notes": "Lee el archivo binario y devuelve una fila por licitación (headerRow = primera fila)."
+    },
+    {
+      "name": "Mapear y Calcular Score",
+      "type": "n8n-nodes-base.code",
+      "notes": "runOnceForAllItems. Filtra por rubros activos (keyword matching sobre título normalizado), calcula score 0-100 (rubro 50 + monto 15 + días_al_cierre 15 + participación_previa 0 en MVP). Retorna 1 item con array licitaciones[] + stats (count, alta, media, baja, fechaHoy). La columna de título se detecta dinámicamente con Object.keys().find() para tolerar variaciones en el Excel de ComprAR.",
+      "code": "const RUBROS = {\n  informatica: ['informatic','tecnolog','software','hardware','sistema','licencia','computadora','servidor','internet','digital','electroni','impres','monitor','teclado','mouse','router','switch','firewall','ups'],\n  ferreteria: ['ferreter','herramienta','tornillo','pintura','construcc','materiales','buloneria','soldadura','caño','tubo','cable elect'],\n  indumentaria: ['indumentaria','calzado','ropa','uniforme','vestimenta','textil','tela','prenda','campera','pantalon','camisa','bota'],\n  epp: ['epp','protecci personal','casco','guante','chaleco','barbijo','seguridad laboral','equipo de protecci','antiparras','respirador','mameluco','arnes'],\n  bazar: ['bazar','vajilla','utensilio','cocina','menaje','cristaler','cubierto','olla','bandeja','cafetera','dispenser'],\n  mantenimiento: ['mantenimiento','limpieza','edificio','plomeria','plomería','electricidad','electric','sanitario','aire acondicionado','ascensor','pintura','jardineria','jardinería','fumigacion','fumigación','conservacion','conservación','reparacion','reparación'],\n};\nconst norm = (s) => {\n  if (s === null || s === undefined) return '';\n  return String(s).toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');\n};\nconst prev = $('Preparar Fechas').item.json;\nconst hoyISO = prev.fechaHoyISO;\nconst hoyDisplay = prev.fechaHoyDisplay;\nlet alta = 0, media = 0, baja = 0;\nconst licitaciones = [];\nconst rows = $input.all();\nfor (const item of rows) {\n  const row = item.json;\n  if (!row || Object.keys(row).length === 0) continue;\n  const tituloKey = Object.keys(row).find(k => k.startsWith('Nombre') || k.startsWith('nombre'));\n  const titulo = (tituloKey ? String(row[tituloKey]) : '') || row['Descripcion'] || row['Descripción'] || '';\n  const numero = row['Número de Proceso'] || row['Numero de Proceso'] || row['número de proceso'] || '';\n  const organismo = row['Unidad Ejecutora'] || row['Organismo'] || row['unidad ejecutora'] || '';\n  const fechaCierreRaw = row['Fecha de Apertura'] || row['Fecha Apertura'] || '';\n  const fechaPubRaw = row['Fecha de Publicación'] || row['Fecha Publicacion'] || row['Fecha de Publicacion'] || '';\n  const montoRaw = row['Monto Estimado'] || row['Presupuesto Oficial'] || null;\n  const monto = montoRaw ? parseFloat(String(montoRaw).replace(/[$.,\\s]/g, '').replace(',', '.')) : null;\n  const tituloNorm = norm(titulo);\n  let rubroMatch = null;\n  for (const [rubro, keywords] of Object.entries(RUBROS)) {\n    if (keywords.some(kw => tituloNorm.includes(norm(kw)))) { rubroMatch = rubro; break; }\n  }\n  if (!rubroMatch) continue;\n  let fechaCierreISO = null, diasAlCierre = null;\n  const matchCierre = String(fechaCierreRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (matchCierre) {\n    const [, d, m, y] = matchCierre;\n    fechaCierreISO = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;\n    diasAlCierre = Math.ceil((new Date(fechaCierreISO + 'T23:59:59') - new Date(hoyISO + 'T00:00:00')) / 86400000);\n  }\n  let fechaPubISO = null;\n  const matchPub = String(fechaPubRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (matchPub) { const [, d, m, y] = matchPub; fechaPubISO = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`; }\n  let score = 50;\n  if (monto !== null && !isNaN(monto)) {\n    if (monto >= 5000000) score += 15; else if (monto >= 1000000) score += 10; else if (monto >= 500000) score += 5; else score += 2;\n  } else { score += 5; }\n  if (diasAlCierre !== null) {\n    if (diasAlCierre <= 0) score += 0; else if (diasAlCierre <= 3) score += 5; else if (diasAlCierre <= 7) score += 10; else if (diasAlCierre <= 15) score += 15; else score += 8;\n  }\n  const prioridad = score >= 70 ? 'alta' : score >= 40 ? 'media' : 'baja';\n  if (prioridad === 'alta') alta++; else if (prioridad === 'media') media++; else baja++;\n  licitaciones.push({ portal: 'nacional', numero: String(numero).trim(), titulo: String(titulo).trim(), organismo: String(organismo).trim(), rubro: rubroMatch, monto_estimado: (monto !== null && !isNaN(monto)) ? monto : null, fecha_publicacion: fechaPubISO, fecha_cierre: fechaCierreISO, url: 'https://comprar.gob.ar/Compras.aspx', estado: 'nueva', score, prioridad, participacion_previa: false });\n}\nreturn [{ json: { licitaciones, count: licitaciones.length, alta, media, baja, fechaHoy: hoyDisplay } }];"
+    },
+    {
+      "name": "Preparar Filas",
+      "type": "n8n-nodes-base.code",
+      "notes": "runOnceForAllItems. Explota el array licitaciones[] en items individuales (uno por licitación) para que el nodo Supabase los inserte de a uno. Si count=0, retorna [] y el workflow se detiene.",
+      "code": "const stats = $input.first().json;\nif (!stats.licitaciones?.length) return [];\nreturn stats.licitaciones.map(l => ({ json: l }));"
+    },
+    {
+      "name": "Create a row",
+      "type": "n8n-nodes-base.supabase",
+      "notes": "Nodo nativo Supabase. Operación: Create a row. Tabla: licitaciones. Auto-Map Input Data to Columns. Credencial: 'Supabase RODOLFO' (service_role). 'Continue on Fail' activado para ignorar errores de clave duplicada (constraint licitaciones_portal_numero_key) sin detener el workflow.",
+      "credential": "Supabase RODOLFO",
+      "table": "licitaciones",
+      "operation": "create",
+      "continueOnFail": true
+    },
+    {
+      "name": "Consolidar",
+      "type": "n8n-nodes-base.code",
+      "notes": "runOnceForAllItems. Colapsa todos los items de salida del nodo Supabase (uno por licitación insertada) en un único item vacío, para que Construir Mensaje y Telegram se ejecuten una sola vez.",
+      "code": "return [{ json: {} }];"
+    },
+    {
+      "name": "Construir Mensaje",
+      "type": "n8n-nodes-base.code",
+      "notes": "Recupera stats de 'Mapear y Calcular Score' y formatea el mensaje Telegram con emojis, conteo por prioridad y lista de títulos truncados.",
+      "code": "const stats = $('Mapear y Calcular Score').item.json;\nconst { count, alta, media, baja, fechaHoy, licitaciones } = stats;\nif (!count || count === 0) {\n  return [{ json: { text: `📋 *ComprAR ${fechaHoy}*\\n\\nSin licitaciones relevantes hoy.` }}];\n}\nlet msg = `📋 *ComprAR ${fechaHoy}* — ${count} licitacion${count !== 1 ? 'es' : ''} nueva${count !== 1 ? 's' : ''}\\n`;\nmsg += `🟢 Alta: ${alta} · 🟡 Media: ${media} · 🔴 Baja: ${baja}\\n\\n`;\nconst top = licitaciones.filter(l => l.prioridad === 'alta').slice(0, 5);\nif (top.length) {\n  msg += `*Prioritarias:*\\n`;\n  for (const l of top) {\n    const titulo = l.titulo.length > 60 ? l.titulo.slice(0, 57) + '...' : l.titulo;\n    msg += `• ${titulo} (${l.organismo || 'N/A'})\\n`;\n  }\n}\nmsg += `\\n🔗 [Ver en ComprAR](https://comprar.gob.ar)`;\nreturn [{ json: { text: msg } }];"
+    },
+    {
+      "name": "Notificación Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "notes": "Envía el mensaje a RodolfiBot. Credencial: 'RodolfiBot' (token en credential store, no en el workflow). Chat ID: 177682377 (usuario Rodolfo). Parse mode: Markdown.",
+      "credential": "RodolfiBot",
+      "chatId": "177682377",
+      "parseMode": "Markdown"
+    }
+  ],
+  "connections": {
+    "Cron Diario": "Preparar Fechas",
+    "Preparar Fechas": "GET ComprAR",
+    "GET ComprAR": "Extraer ViewState",
+    "Extraer ViewState": "Descargar Excel",
+    "Descargar Excel": "Parsear Excel",
+    "Parsear Excel": "Mapear y Calcular Score",
+    "Mapear y Calcular Score": "Preparar Filas",
+    "Preparar Filas": "Create a row",
+    "Create a row": "Consolidar",
+    "Consolidar": "Construir Mensaje",
+    "Construir Mensaje": "Notificación Telegram"
+  },
+  "cron": "0 11 * * 1-5",
+  "schedule_note": "Lunes a viernes 8:00am Buenos Aires (UTC-3 = 11:00 UTC)",
+  "score_logic": {
+    "rubro_match": 50,
+    "participacion_previa": "0 en MVP (cruzar con tabla organismos_previos en Fase 2)",
+    "monto": ">=5M: +15pts | >=1M: +10pts | >=500K: +5pts | <500K: +2pts | sin dato: +5pts",
+    "dias_al_cierre": "<=3: +5pts | <=7: +10pts | <=15: +15pts | >15: +8pts | vencida: 0pts",
+    "prioridad": "alta: 70-100 | media: 40-69 | baja: 0-39"
+  },
+  "rubros_activos": {
+    "informatica": ["informatic", "tecnolog", "software", "hardware", "sistema", "licencia", "computadora", "servidor", "internet", "digital", "electroni", "impres", "monitor", "teclado", "mouse", "router", "switch", "firewall", "ups"],
+    "ferreteria": ["ferreter", "herramienta", "tornillo", "pintura", "construcc", "materiales", "buloneria", "soldadura", "caño", "tubo", "cable elect"],
+    "indumentaria": ["indumentaria", "calzado", "ropa", "uniforme", "vestimenta", "textil", "tela", "prenda", "campera", "pantalon", "camisa", "bota"],
+    "epp": ["epp", "protecci personal", "casco", "guante", "chaleco", "barbijo", "seguridad laboral", "equipo de protecci", "antiparras", "respirador", "mameluco", "arnes"],
+    "bazar": ["bazar", "vajilla", "utensilio", "cocina", "menaje", "cristaler", "cubierto", "olla", "bandeja", "cafetera", "dispenser"],
+    "mantenimiento": ["mantenimiento", "limpieza", "edificio", "plomeria", "plomería", "electricidad", "electric", "sanitario", "aire acondicionado", "ascensor", "pintura", "jardineria", "jardinería", "fumigacion", "fumigación", "conservacion", "conservación", "reparacion", "reparación"]
+  },
+  "supabase": {
+    "credential": "Supabase RODOLFO",
+    "table": "licitaciones",
+    "unique_constraint": "licitaciones_portal_numero_key (portal, numero)",
+    "note": "El nodo usa service_role via credencial n8n — la key nunca está en el JSON del workflow"
+  },
+  "telegram": {
+    "credential": "RodolfiBot",
+    "bot": "RodolfiBot",
+    "chat_id": "177682377",
+    "note": "El token está en la credencial n8n, no en el workflow"
+  }
+}

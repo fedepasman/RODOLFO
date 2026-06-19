@@ -1,0 +1,208 @@
+"use server";
+
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/actions/auth";
+import type { Licitacion } from "@/types/licitaciones";
+import { MOCK_LICITACIONES } from "@/lib/mock/licitaciones";
+
+// ---------------------------------------------------------------------------
+// Helpers internos
+// ---------------------------------------------------------------------------
+
+function isSupabaseConfigured() {
+  return !!(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Queries (usadas desde Server Components directamente)
+// ---------------------------------------------------------------------------
+
+export async function getLicitaciones(): Promise<Licitacion[]> {
+  if (!isSupabaseConfigured()) return MOCK_LICITACIONES;
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("licitaciones")
+    .select("*")
+    .order("score", { ascending: false });
+
+  if (error) {
+    console.error("[licitaciones] Error al obtener listado:", error.message);
+    return MOCK_LICITACIONES;
+  }
+
+  return data ?? MOCK_LICITACIONES;
+}
+
+export async function getLicitacion(id: string): Promise<Licitacion | null> {
+  if (!isSupabaseConfigured()) {
+    return MOCK_LICITACIONES.find((l) => l.id === id) ?? null;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("licitaciones")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error) {
+    console.error("[licitaciones] Error al obtener detalle:", error.message);
+    return MOCK_LICITACIONES.find((l) => l.id === id) ?? null;
+  }
+
+  return data;
+}
+
+export async function getLicitacionesByEstado(
+  estado: "nueva" | "seguimiento" | "presentada" | "descartada",
+): Promise<Licitacion[]> {
+  if (!isSupabaseConfigured()) {
+    return MOCK_LICITACIONES.filter((l) => l.estado === estado);
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("licitaciones")
+    .select("*")
+    .eq("estado", estado)
+    .order("score", { ascending: false });
+
+  if (error) {
+    console.error("[licitaciones] Error al filtrar por estado:", error.message);
+    return MOCK_LICITACIONES.filter((l) => l.estado === estado);
+  }
+
+  return data ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Mutations (server actions para formularios / botones)
+// ---------------------------------------------------------------------------
+
+const updateEstadoSchema = z.object({
+  licitacion_id: z.string().uuid(),
+  estado: z.enum(["nueva", "seguimiento", "presentada", "descartada"]),
+});
+
+export type ActionResult = { error: string | null };
+
+export async function updateEstadoAction(
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const user = await requireUser();
+
+  const parsed = updateEstadoSchema.safeParse({
+    licitacion_id: formData.get("licitacion_id"),
+    estado: formData.get("estado"),
+  });
+
+  if (!parsed.success) {
+    return { error: "Datos inválidos" };
+  }
+
+  const supabase = await createClient();
+
+  const { error: updateError } = await supabase
+    .from("licitaciones")
+    .update({ estado: parsed.data.estado })
+    .eq("id", parsed.data.licitacion_id);
+
+  if (updateError) {
+    return { error: "No se pudo actualizar el estado" };
+  }
+
+  // Registrar en historial
+  await supabase.from("historial_estado").insert({
+    licitacion_id: parsed.data.licitacion_id,
+    user_id: user.id,
+    estado_nuevo: parsed.data.estado,
+  });
+
+  revalidatePath(`/licitaciones/${parsed.data.licitacion_id}`);
+  revalidatePath("/licitaciones");
+  revalidatePath("/dashboard");
+  revalidatePath("/seguimiento");
+
+  return { error: null };
+}
+
+const upsertSeguimientoSchema = z.object({
+  licitacion_id: z.string().uuid(),
+  nota: z.string().max(5000).optional(),
+  archivo_drive: z.string().url().optional().or(z.literal("")),
+});
+
+export async function upsertSeguimientoAction(
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const user = await requireUser();
+
+  const parsed = upsertSeguimientoSchema.safeParse({
+    licitacion_id: formData.get("licitacion_id"),
+    nota: formData.get("nota") ?? undefined,
+    archivo_drive: formData.get("archivo_drive") ?? undefined,
+  });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const supabase = await createClient();
+
+  const { error } = await supabase.from("seguimientos").upsert(
+    {
+      licitacion_id: parsed.data.licitacion_id,
+      user_id: user.id,
+      nota: parsed.data.nota ?? null,
+      archivo_drive: parsed.data.archivo_drive || null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "licitacion_id,user_id" },
+  );
+
+  if (error) {
+    return { error: "No se pudo guardar la información" };
+  }
+
+  revalidatePath(`/licitaciones/${parsed.data.licitacion_id}`);
+  return { error: null };
+}
+
+export async function getSeguimiento(licitacion_id: string) {
+  if (!isSupabaseConfigured()) return null;
+
+  const user = await requireUser();
+  const supabase = await createClient();
+
+  const { data } = await supabase
+    .from("seguimientos")
+    .select("*")
+    .eq("licitacion_id", licitacion_id)
+    .eq("user_id", user.id)
+    .single();
+
+  return data ?? null;
+}
+
+export async function getHistorialEstado(licitacion_id: string) {
+  if (!isSupabaseConfigured()) return [];
+
+  const supabase = await createClient();
+
+  const { data } = await supabase
+    .from("historial_estado")
+    .select("*")
+    .eq("licitacion_id", licitacion_id)
+    .order("created_at", { ascending: false });
+
+  return data ?? [];
+}
