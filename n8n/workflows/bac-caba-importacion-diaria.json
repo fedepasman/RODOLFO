@@ -1,0 +1,150 @@
+{
+  "id": "K02iRwA39YtrrpED",
+  "name": "Licitaciones BAC CABA - Importación Diaria",
+  "active": false,
+  "nodes": [
+    {
+      "name": "Cron Diario",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "notes": "Lunes a viernes 8:15am Buenos Aires (11:15 UTC). 15 min despues de ComprAR."
+    },
+    {
+      "name": "Preparar Fechas",
+      "type": "n8n-nodes-base.code",
+      "notes": "Calcula ayer y hoy en DD/MM/YYYY e ISO. BAC filtra por fecha de apertura.",
+      "code": "const now = new Date();\nconst ayer = new Date(now);\nayer.setDate(ayer.getDate() - 1);\nconst pad = n => String(n).padStart(2, '0');\nconst fmt = d => `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;\nconst iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;\nreturn [{ json: { fechaAyerDisplay: fmt(ayer), fechaHoyDisplay: fmt(now), fechaAyerISO: iso(ayer), fechaHoyISO: iso(now) }}];"
+    },
+    {
+      "name": "GET BAC curl",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "notes": "curl reemplaza HTTP Request porque el parser de Node.js rechaza headers malformados del servidor BAC (BIGipServer cookie con caracteres invalidos). curl usa libcurl que es tolerante. Guarda cookies en /tmp/bac_c.txt para reutilizarlas en el POST (stickiness del BIG-IP load balancer).",
+      "command": "curl -s -L -c /tmp/bac_c.txt -H \"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36\" -H \"Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\" -H \"Accept-Language: es-AR,es;q=0.9\" \"https://buenosairescompras.gob.ar/BuscarAvanzado.aspx\""
+    },
+    {
+      "name": "Extraer ViewState",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "notes": "Lee stdout del curl GET. Extrae __VIEWSTATE, __VIEWSTATEGENERATOR y ctl00$CSRFToken del HTML (campos ASP.NET WebForms). Tambien construye el form body URL-encodeado completo usando encodeURIComponent() en JavaScript — esto evita el problema de escapar el signo $ en bash. El campo formData se usa directamente en el siguiente curl con --data-raw.",
+      "key_differences_vs_comprar": [
+        "CSRFToken = ctl00$CSRFToken (no existe en ComprAR)",
+        "No hay __EVENTVALIDATION (BAC es mas simple)",
+        "El Excel se llama ReporteProcesos.xls",
+        "El form body se construye en JS para evitar escaping de $ en bash"
+      ],
+      "code": "const html = $input.first().json.stdout;\nconst vsMatch = html.match(/name=\"__VIEWSTATE\"[^>]+value=\"([^\"]+)\"/);\nconst vsgMatch = html.match(/name=\"__VIEWSTATEGENERATOR\"[^>]+value=\"([^\"]+)\"/);\nconst csrfMatch = html.match(/name=\"ctl00\\$CSRFToken\"[^>]+value=\"([^\"]+)\"/);\nconst fechas = $('Preparar Fechas').first().json;\nconst vs = vsMatch ? vsMatch[1] : '';\nconst vsg = vsgMatch ? vsgMatch[1] : 'AD3B4564';\nconst csrf = csrfMatch ? csrfMatch[1] : '';\nconst params = {\n  'ctl00$CSRFToken': csrf,\n  'ctl00$CtrlMenuPortal$hdnLogin': '0',\n  'ctl00$CPH1$txtNumeroProceso': '',\n  'ctl00$CPH1$txtExpediente': '',\n  'ctl00$CPH1$txtNombrePliego': '',\n  'ctl00$CPH1$ddlJurisdiccion': '-2',\n  'ctl00$CPH1$ddlTipoProceso': '-2',\n  'ctl00$CPH1$ddlEstadoProceso': '-2',\n  'ctl00$CPH1$ddlRubro': '-2',\n  'ctl00$CPH1$devCbPnlNombreProveedor$txtNombreProveedor': '',\n  'ctl00$CPH1$txtFechaDesde': fechas.fechaAyerDisplay,\n  'ctl00$CPH1$txtFechaHasta': fechas.fechaHoyDisplay,\n  'ctl00$CPH1$ddlResultadoOrdenadoPor': 'PLI.Pliego.NumeroPliego',\n  'ctl00$CPH1$hidEstadoListaPliegos': 'NOREPORTEEXCEL',\n  'ctl00$CPH1$devCbPnlPopupListarProveedor$txtPopupNombreProveedor': '',\n  'ctl00$CPH1$devCbPnlPopupListarProveedor$txtPopupCuitProveedor': '',\n  'ctl00_CPH1_devPopupListarProveedorWS': '0:0:-1:0:0:0:0:',\n  'ctl00$CPH1$hdnFIdIdProveedorSeleccionado': '',\n  'ctl00_CPH1_devPopupVistaPreviewProcesoCompraCiudadanoWS': '0:0:-1:0:0:0:0:',\n  'ctl00_CPH1_devPopupVistaPreviewPliegoWS': '0:0:-1:0:0:0:0:',\n  'DXScript': '1_103,1_105,1_100,1_83',\n  '__EVENTTARGET': 'ctl00$CPH1$btnDescargarReporteExcel',\n  '__EVENTARGUMENT': '',\n  '__LASTFOCUS': '',\n  '__VIEWSTATE': vs,\n  '__VIEWSTATEGENERATOR': vsg,\n};\nconst formData = Object.entries(params)\n  .map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v))\n  .join('&');\nreturn [{ json: { viewState: vs, viewStateGenerator: vsg, csrfToken: csrf, fechaDesde: fechas.fechaAyerDisplay, fechaHasta: fechas.fechaHoyDisplay, fechaHoyISO: fechas.fechaHoyISO, fechaHoyDisplay: fechas.fechaHoyDisplay, formData } }];"
+    },
+    {
+      "name": "Descargar Excel curl",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "notes": "POST curl con el form body URL-encodeado inyectado via expresion n8n (sin problemas de $ en bash). La respuesta XLS se pipe a base64 + tr -d newlines para pasarla como string al nodo siguiente.",
+      "command": "curl -s -b /tmp/bac_c.txt -c /tmp/bac_c.txt -X POST -H \"Content-Type: application/x-www-form-urlencoded\" -H \"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36\" -H \"Referer: https://buenosairescompras.gob.ar/BuscarAvanzado.aspx\" --data-raw \"{{ $json.formData }}\" \"https://buenosairescompras.gob.ar/BuscarAvanzado.aspx\" | base64 | tr -d '\\n'",
+      "form_fields_captured_from_devtools": {
+        "url": "https://buenosairescompras.gob.ar/BuscarAvanzado.aspx",
+        "__EVENTTARGET": "ctl00$CPH1$btnDescargarReporteExcel",
+        "__VIEWSTATEGENERATOR": "AD3B4564",
+        "excel_file": "ReporteProcesos.xls",
+        "content_type": "application/xls"
+      }
+    },
+    {
+      "name": "Excel a Binario",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "notes": "Convierte el stdout base64 del curl a un item binario con formato nativo n8n {data, mimeType, fileName}. Si la respuesta es menor a 100 chars (error HTML en lugar del XLS), retorna [] y detiene el workflow.",
+      "code": "const b64 = ($input.first().json.stdout || '').replace(/\\s/g, '');\nif (!b64 || b64.length < 100) return [];\nreturn [{\n  json: {},\n  binary: {\n    data: {\n      data: b64,\n      mimeType: 'application/vnd.ms-excel',\n      fileName: 'ReporteProcesos.xls'\n    }\n  }\n}];"
+    },
+    {
+      "name": "Parsear Excel",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 1,
+      "notes": "Lee ReporteProcesos.xls del campo binario 'data'. Una fila por proceso. Las columnas se detectan dinamicamente en Mapear y Calcular Score."
+    },
+    {
+      "name": "Mapear y Calcular Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "notes": "runOnceForAllItems. Deteccion dinamica de columnas con norm() + Object.keys().find(). Filtra por rubros activos, calcula score 0-100. Portal = 'caba'.",
+      "code": "const RUBROS = {\n  informatica: ['informatic','tecnolog','software','hardware','sistema','licencia','computadora','servidor','internet','digital','electroni','impres','monitor','teclado','mouse','router','switch','firewall','ups'],\n  ferreteria: ['ferreter','herramienta','tornillo','pintura','construcc','materiales','buloneria','soldadura','tubo','cable elect'],\n  indumentaria: ['indumentaria','calzado','ropa','uniforme','vestimenta','textil','tela','prenda','campera','pantalon','camisa','bota'],\n  epp: ['epp','protecci personal','casco','guante','chaleco','barbijo','seguridad laboral','equipo de protecci','antiparras','respirador','mameluco','arnes'],\n  bazar: ['bazar','vajilla','utensilio','cocina','menaje','cristaler','cubierto','olla','bandeja','cafetera','dispenser'],\n  mantenimiento: ['mantenimiento','limpieza','edificio','plomeria','electricidad','electric','sanitario','aire acondicionado','ascensor','jardineria','fumigacion','conservacion','reparacion'],\n};\nconst norm = s => { if (s == null) return ''; return String(s).toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,''); };\nconst prev = $('Extraer ViewState').first().json;\nconst hoyISO = prev.fechaHoyISO;\nconst hoyDisplay = prev.fechaHoyDisplay;\nlet alta=0, media=0, baja=0;\nconst licitaciones = [];\nfor (const item of $input.all()) {\n  const row = item.json;\n  if (!row || Object.keys(row).length === 0) continue;\n  const tituloKey = Object.keys(row).find(k => norm(k).includes('denominac') || norm(k).includes('nombre') || norm(k).includes('descripc'));\n  const titulo = tituloKey ? String(row[tituloKey]) : '';\n  if (!norm(titulo)) continue;\n  const numeroKey = Object.keys(row).find(k => norm(k).includes('numero') || norm(k).includes('nro') || norm(k).includes('proceso') || norm(k).includes('expediente'));\n  const numero = numeroKey ? String(row[numeroKey]) : '';\n  const orgKey = Object.keys(row).find(k => norm(k).includes('reparticion') || norm(k).includes('organismo') || norm(k).includes('jurisdiccion') || norm(k).includes('unidad'));\n  const organismo = orgKey ? String(row[orgKey]) : '';\n  const fechaKey = Object.keys(row).find(k => norm(k).includes('apertura') || norm(k).includes('cierre'));\n  const fechaCierreRaw = fechaKey ? String(row[fechaKey]) : '';\n  const montoKey = Object.keys(row).find(k => norm(k).includes('monto') || norm(k).includes('presupuesto') || norm(k).includes('importe'));\n  const montoRaw = montoKey ? row[montoKey] : null;\n  const monto = montoRaw ? parseFloat(String(montoRaw).replace(/[$.,\\s]/g,'')) : null;\n  let rubroMatch = null;\n  const tituloNorm = norm(titulo);\n  for (const [rubro, kws] of Object.entries(RUBROS)) {\n    if (kws.some(kw => tituloNorm.includes(norm(kw)))) { rubroMatch = rubro; break; }\n  }\n  if (!rubroMatch) continue;\n  let fechaCierreISO = null, diasAlCierre = null;\n  const m = fechaCierreRaw.match(/(\\d{1,2})[\\/\\-](\\d{1,2})[\\/\\-](\\d{4})/);\n  if (m) { const [,d,mo,y] = m; fechaCierreISO=`${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`; diasAlCierre=Math.ceil((new Date(fechaCierreISO+'T23:59:59')-new Date(hoyISO+'T00:00:00'))/86400000); }\n  let score = 50;\n  if (monto!=null&&!isNaN(monto)) { if(monto>=5000000)score+=15; else if(monto>=1000000)score+=10; else if(monto>=500000)score+=5; else score+=2; } else score+=5;\n  if (diasAlCierre!=null) { if(diasAlCierre<=0)score+=0; else if(diasAlCierre<=3)score+=5; else if(diasAlCierre<=7)score+=10; else if(diasAlCierre<=15)score+=15; else score+=8; }\n  const prioridad = score>=70?'alta':score>=40?'media':'baja';\n  if(prioridad==='alta')alta++; else if(prioridad==='media')media++; else baja++;\n  licitaciones.push({portal:'caba',numero:numero.trim(),titulo:titulo.trim(),organismo:organismo.trim(),rubro:rubroMatch,monto_estimado:(monto!=null&&!isNaN(monto))?monto:null,fecha_publicacion:null,fecha_cierre:fechaCierreISO,url:'https://www.buenosairescompras.gob.ar/BuscarAvanzado.aspx',estado:'nueva',score,prioridad,participacion_previa:false});\n}\nreturn [{json:{licitaciones,count:licitaciones.length,alta,media,baja,fechaHoy:hoyDisplay}}];"
+    },
+    {
+      "name": "Preparar Filas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "notes": "runOnceForAllItems. Explota array licitaciones[] en items individuales para el nodo Supabase.",
+      "code": "const stats = $input.first().json;\nif (!stats.licitaciones?.length) return [];\nreturn stats.licitaciones.map(l => ({ json: l }));"
+    },
+    {
+      "name": "Create a row",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "notes": "Tabla: licitaciones. Auto-Map Input Data. Credencial: 'Supabase RODOLFO'. continueOnFail: true para ignorar errores de clave duplicada (constraint licitaciones_portal_numero_key).",
+      "credential": "Supabase RODOLFO",
+      "table": "licitaciones",
+      "operation": "create",
+      "continueOnFail": true
+    },
+    {
+      "name": "Consolidar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "notes": "Colapsa todos los items del Supabase en un unico item para que Telegram se ejecute una sola vez.",
+      "code": "return [{ json: {} }];"
+    },
+    {
+      "name": "Construir Mensaje",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "notes": "Formatea el mensaje Telegram con emoji 🏙️ (CABA) + conteo por prioridad + top 5 prioritarias.",
+      "code": "const stats = $('Mapear y Calcular Score').first().json;\nconst { count, alta, media, baja, fechaHoy, licitaciones } = stats;\nif (!count || count === 0) {\n  return [{ json: { text: `🏙️ *BAC CABA ${fechaHoy}*\\n\\nSin licitaciones relevantes hoy.` }}];\n}\nlet msg = `🏙️ *BAC CABA ${fechaHoy}* — ${count} licitacion${count !== 1 ? 'es' : ''} nueva${count !== 1 ? 's' : ''}\\n`;\nmsg += `🟢 Alta: ${alta} · 🟡 Media: ${media} · 🔴 Baja: ${baja}\\n\\n`;\nconst top = licitaciones.filter(l => l.prioridad === 'alta').slice(0, 5);\nif (top.length) {\n  msg += `*Prioritarias:*\\n`;\n  for (const l of top) {\n    const titulo = l.titulo.length > 60 ? l.titulo.slice(0, 57) + '...' : l.titulo;\n    msg += `• ${titulo} (${l.organismo || 'N/A'})\\n`;\n  }\n}\nmsg += `\\n🔗 [Ver en BAC CABA](https://www.buenosairescompras.gob.ar/BuscarAvanzado.aspx)`;\nreturn [{ json: { text: msg } }];"
+    },
+    {
+      "name": "Notificación Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "notes": "Credencial: RodolfiBOT. Chat ID: 177682377. Parse mode: Markdown.",
+      "credential": "RodolfiBOT",
+      "chatId": "177682377",
+      "parseMode": "Markdown"
+    }
+  ],
+  "connections": {
+    "Cron Diario": "Preparar Fechas",
+    "Preparar Fechas": "GET BAC curl",
+    "GET BAC curl": "Extraer ViewState",
+    "Extraer ViewState": "Descargar Excel curl",
+    "Descargar Excel curl": "Excel a Binario",
+    "Excel a Binario": "Parsear Excel",
+    "Parsear Excel": "Mapear y Calcular Score",
+    "Mapear y Calcular Score": "Preparar Filas",
+    "Preparar Filas": "Create a row",
+    "Create a row": "Consolidar",
+    "Consolidar": "Construir Mensaje",
+    "Construir Mensaje": "Notificación Telegram"
+  },
+  "cron": "15 11 * * 1-5",
+  "schedule_note": "Lunes a viernes 8:15am Buenos Aires (UTC-3 = 11:15 UTC). 15 min despues de ComprAR.",
+  "portal": "caba",
+  "technical_notes": {
+    "curl_reason": "El parser HTTP de Node.js (llhttp) rechaza headers de respuesta del servidor BAC con caracteres no permitidos por RFC 7230 (probablemente en Set-Cookie BIGipServer o en un Location header con redirect). curl usa libcurl que es tolerante. Solucion: Execute Command + curl en lugar de HTTP Request nodes.",
+    "form_body_encoding": "El form body se construye en JavaScript con encodeURIComponent() en el nodo 'Extraer ViewState'. Esto evita el problema de escapar el signo $ (de los nombres de campo ASP.NET como ctl00$CPH1$...) en bash. El nodo curl recibe el body ya URL-encodeado via expresion n8n {{ $json.formData }}.",
+    "binary_data": "El Excel descargado se pipe a base64 en el curl. El nodo 'Excel a Binario' lo convierte al formato binario nativo de n8n {data, mimeType, fileName} para que 'Parsear Excel' (spreadsheetFile) lo pueda leer.",
+    "cookie_file": "/tmp/bac_c.txt — compartido entre GET y POST para mantener la sesion del BIG-IP load balancer.",
+    "date_filter": "BAC filtra por fecha de apertura (no publicacion). Rango: ayer hasta hoy. Si se necesitan mas resultados, ampliar txtFechaHasta a hoy+30.",
+    "csrf_token": "ctl00$CSRFToken — unico en BAC, no existe en ComprAR. Se extrae del HTML del GET con regex.",
+    "no_event_validation": "BAC no tiene __EVENTVALIDATION (a diferencia de ComprAR), el form es mas simple."
+  },
+  "supabase": {
+    "credential": "Supabase RODOLFO",
+    "table": "licitaciones",
+    "portal_value": "caba",
+    "unique_constraint": "licitaciones_portal_numero_key (portal, numero)"
+  },
+  "telegram": {
+    "credential": "RodolfiBOT",
+    "chat_id": "177682377",
+    "emoji": "🏙️ (CABA, distinto de 📋 ComprAR)"
+  }
+}

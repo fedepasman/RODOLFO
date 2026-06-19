@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { PrioridadBadge } from "@/components/licitaciones/prioridad-badge";
+import { Input } from "@/components/ui/input";
 import {
   PORTAL_LABEL,
   ESTADO_LABEL,
@@ -34,41 +36,61 @@ import {
 
 interface Props {
   licitaciones: Licitacion[];
+  withEstadoFilter?: boolean;
 }
 
 const TODOS = "todos";
 
-export function LicitacionesTable({ licitaciones }: Props) {
+export function LicitacionesTable({ licitaciones, withEstadoFilter = true }: Props) {
+  const [busqueda, setBusqueda] = useState("");
   const [portalFiltro, setPortalFiltro] = useState(TODOS);
   const [prioridadFiltro, setPrioridadFiltro] = useState(TODOS);
   const [rubroFiltro, setRubroFiltro] = useState(TODOS);
   const [estadoFiltro, setEstadoFiltro] = useState(TODOS);
 
   const filtradas = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
     return licitaciones
+      .filter((l) => {
+        if (!q) return true;
+        return (
+          l.titulo.toLowerCase().includes(q) ||
+          (l.organismo ?? "").toLowerCase().includes(q) ||
+          l.numero.toLowerCase().includes(q)
+        );
+      })
       .filter((l) => portalFiltro === TODOS || l.portal === portalFiltro)
       .filter((l) => prioridadFiltro === TODOS || l.prioridad === prioridadFiltro)
       .filter((l) => rubroFiltro === TODOS || l.rubro === rubroFiltro)
       .filter((l) => estadoFiltro === TODOS || l.estado === estadoFiltro)
       .sort((a, b) => b.score - a.score);
-  }, [licitaciones, portalFiltro, prioridadFiltro, rubroFiltro, estadoFiltro]);
+  }, [licitaciones, busqueda, portalFiltro, prioridadFiltro, rubroFiltro, estadoFiltro]);
 
   const hayFiltros =
+    busqueda !== "" ||
     portalFiltro !== TODOS ||
     prioridadFiltro !== TODOS ||
     rubroFiltro !== TODOS ||
-    estadoFiltro !== TODOS;
+    (withEstadoFilter && estadoFiltro !== TODOS);
 
   function limpiarFiltros() {
+    setBusqueda("");
     setPortalFiltro(TODOS);
     setPrioridadFiltro(TODOS);
     setRubroFiltro(TODOS);
-    setEstadoFiltro(TODOS);
+    if (withEstadoFilter) setEstadoFiltro(TODOS);
   }
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Filtros */}
+      {/* Búsqueda + Filtros */}
+      <div className="flex flex-col gap-3">
+      <Input
+        placeholder="Buscar por título, organismo o número…"
+        value={busqueda}
+        onChange={(e) => setBusqueda(e.target.value)}
+        className="h-8 text-sm"
+      />
       <div className="flex flex-wrap items-center gap-3">
         <Select value={portalFiltro} onValueChange={setPortalFiltro}>
           <SelectTrigger className="h-8 w-48 text-xs">
@@ -106,17 +128,19 @@ export function LicitacionesTable({ licitaciones }: Props) {
           </SelectContent>
         </Select>
 
-        <Select value={estadoFiltro} onValueChange={setEstadoFiltro}>
-          <SelectTrigger className="h-8 w-44 text-xs">
-            <SelectValue placeholder="Estado" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={TODOS}>Todos los estados</SelectItem>
-            {(Object.entries(ESTADO_LABEL) as [EstadoLicitacion, string][]).map(([k, v]) => (
-              <SelectItem key={k} value={k}>{v}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {withEstadoFilter && (
+          <Select value={estadoFiltro} onValueChange={setEstadoFiltro}>
+            <SelectTrigger className="h-8 w-44 text-xs">
+              <SelectValue placeholder="Estado" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={TODOS}>Todos los estados</SelectItem>
+              {(Object.entries(ESTADO_LABEL) as [EstadoLicitacion, string][]).map(([k, v]) => (
+                <SelectItem key={k} value={k}>{v}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         {hayFiltros && (
           <Button variant="ghost" size="sm" onClick={limpiarFiltros} className="h-8 text-xs">
@@ -127,6 +151,7 @@ export function LicitacionesTable({ licitaciones }: Props) {
         <span className="ml-auto text-xs text-muted-foreground">
           {filtradas.length} de {licitaciones.length} licitaciones
         </span>
+      </div>
       </div>
 
       {/* Tabla */}
@@ -154,7 +179,17 @@ export function LicitacionesTable({ licitaciones }: Props) {
               </TableRow>
             ) : (
               filtradas.map((lic) => (
-                <TableRow key={lic.id} className="group">
+                <TableRow
+                  key={lic.id}
+                  className={cn(
+                    "group border-l-2",
+                    lic.prioridad === "alta"
+                      ? "border-l-green-500"
+                      : lic.prioridad === "media"
+                      ? "border-l-yellow-400"
+                      : "border-l-red-400",
+                  )}
+                >
                   <TableCell>
                     <PrioridadBadge prioridad={lic.prioridad} score={lic.score} />
                   </TableCell>

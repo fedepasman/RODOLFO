@@ -1,8 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { upsertSeguimientoAction, type ActionResult } from "@/lib/actions/licitaciones";
 
 interface Props {
@@ -15,6 +18,15 @@ const initialState: ActionResult = { error: null };
 
 export function SeguimientoForm({ licitacionId, notaInicial, archivoInicial }: Props) {
   const [state, formAction, pending] = useActionState(upsertSeguimientoAction, initialState);
+  const savedAt = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!pending && state.error === null && savedAt.current === null) {
+      savedAt.current = 0;
+    } else if (!pending && state.error === null) {
+      savedAt.current = Date.now();
+    }
+  }, [pending, state.error]);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -25,9 +37,11 @@ export function SeguimientoForm({ licitacionId, notaInicial, archivoInicial }: P
           <CardTitle className="text-base">Notas de seguimiento</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
-          <textarea
+          <Label htmlFor="nota" className="sr-only">Notas</Label>
+          <Textarea
+            id="nota"
             name="nota"
-            className="w-full min-h-24 resize-y rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            className="min-h-28 resize-y"
             placeholder="Documentos recibidos, contactos, decisiones…"
             defaultValue={notaInicial}
           />
@@ -42,24 +56,22 @@ export function SeguimientoForm({ licitacionId, notaInicial, archivoInicial }: P
           <p className="text-sm text-muted-foreground">
             Pegá el link al documento en Google Drive.
           </p>
-          <input
+          <Label htmlFor="archivo_drive" className="sr-only">Link Google Drive</Label>
+          <Input
+            id="archivo_drive"
             type="url"
             name="archivo_drive"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             placeholder="https://drive.google.com/…"
             defaultValue={archivoInicial}
           />
         </CardContent>
       </Card>
 
-      {state.error && (
+      {state.error ? (
         <p className="text-sm text-destructive">{state.error}</p>
-      )}
-      {state.error === null && !pending && notaInicial === "" && archivoInicial === "" ? null : (
-        state.error === null && !pending ? (
-          <p className="text-xs text-muted-foreground">Guardado correctamente.</p>
-        ) : null
-      )}
+      ) : savedAt.current !== null && savedAt.current > 0 ? (
+        <p className="text-xs text-muted-foreground">Guardado correctamente.</p>
+      ) : null}
 
       <Button type="submit" disabled={pending}>
         {pending ? "Guardando…" : "Guardar notas y archivos"}
