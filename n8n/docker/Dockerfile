@@ -23,8 +23,8 @@ RUN apk add --no-cache \
       ttf-freefont \
       font-noto \
       font-noto-emoji \
-  # Symlink estable: el binario puede instalarse como chromium-browser o chromium
-  && ln -sf "$(command -v chromium-browser || command -v chromium)" /usr/bin/chromium-browser
+  # Crear symlink para que Puppeteer lo encuentre como chromium-browser
+  && ln -sf /usr/bin/chromium /usr/bin/chromium-browser
 
 # Puppeteer usa el Chromium del sistema y NO intenta descargar el suyo
 # (la descarga fallaría en Alpine y rompería el install del community node).
