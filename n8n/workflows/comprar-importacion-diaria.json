@@ -22,7 +22,10 @@
     {
       "name": "Extraer ViewState",
       "type": "n8n-nodes-base.code",
-      "notes": "Extrae __VIEWSTATE, __EVENTVALIDATION y el ID del botón Excel del HTML de ASP.NET WebForms. El excelTarget se usa en el POST para disparar la descarga."
+      "notes": "Extrae __VIEWSTATE, __EVENTVALIDATION y el ID del botón Excel del HTML de ASP.NET WebForms. El excelTarget se usa en el POST para disparar la descarga.",
+      "parameters": {
+        "jsCode": "const html = $input.first().json.data;\n\nif (!html || typeof html !== 'string') {\n  throw new Error('ComprAR no devolvió HTML válido. Status: ' + JSON.stringify($input.first().json));\n}\n\nconst getHidden = (id) => {\n  const m = html.match(new RegExp(`name=\"${id}\"[^>]*value=\"([^\"]*)\"`, 'i'))\n           || html.match(new RegExp(`id=\"${id}\"\\\\s+value=\"([^\"]*)\"`, 'i'));\n  return m ? m[1] : '';\n};\n\nconst viewstate = getHidden('__VIEWSTATE');\nconst eventvalidation = getHidden('__EVENTVALIDATION');\nconst viewstateGenerator = getHidden('__VIEWSTATEGENERATOR');\n\nlet excelTarget = '';\nconst patterns = [\n  /__doPostBack\\('([^']*(?:xcel|xport|Export|Excel|escargar|nform)[^']*)',''/i,\n  /href=\"javascript:__doPostBack\\('([^']*)','(?:|Excel|export)'\\)\"[^>]*>[^<]*[Ee]xcel/i\n];\nfor (const p of patterns) {\n  const m = html.match(p);\n  if (m) { excelTarget = m[1]; break; }\n}\n\n// Extraer links de detalle de cada licitación del HTML de resultados.\n// Cada fila tiene un anchor apuntando a VistaPreviaPliegoCiudadano.aspx?qs=<token>\n// El token es opaco (firmado por el server), no reconstruible desde el numero.\nconst urlMap = {};\nconst urlRegex = /(?:href|action)=['\"]([^'\"]*VistaPreviaPliegoCiudadano\\.aspx\\?qs=[^'\"]*)['\"]|window\\.(?:open|location\\.href)\\s*=?\\s*['\"]([^'\"]*VistaPreviaPliegoCiudadano\\.aspx\\?qs=[^'\"]*)['\"]/gi;\nconst allUrls = [];\nlet m;\nwhile ((m = urlRegex.exec(html)) !== null) {\n  let rawUrl = (m[1] || m[2]).replace(/&amp;/g, '&');\n  const url = rawUrl.startsWith('http') ? rawUrl : 'https://comprar.gob.ar' + rawUrl;\n  allUrls.push({ index: m.index, url });\n}\n\n// Número de proceso: formato dd/ddd-dddd-LETRASdd (ej: 84/37-0355-LPU26)\nconst numRegex = /\\b(\\d{2,4}\\/\\d{2,4}-\\d{3,6}-[A-Z]{2,6}\\d{1,4})\\b/g;\nconst allNumeros = [];\nwhile ((m = numRegex.exec(html)) !== null) {\n  allNumeros.push({ index: m.index, numero: m[1] });\n}\n\n// Para cada URL encontrada, asociar con el número de proceso más cercano (anterior en el HTML)\nfor (const { index: urlIdx, url } of allUrls) {\n  let closest = null;\n  for (const { index: numIdx, numero } of allNumeros) {\n    if (numIdx < urlIdx && (closest === null || numIdx > closest.index)) {\n      closest = { index: numIdx, numero };\n    }\n  }\n  if (closest) urlMap[closest.numero] = url;\n}\n\nconst prev = $('Preparar Fechas').item.json;\n\nreturn [{\n  json: {\n    viewstate,\n    eventvalidation,\n    viewstateGenerator,\n    excelTarget,\n    urlMap,\n    fechaDesde: prev.fechaDesde,\n    fechaHasta: prev.fechaHasta,\n    fechaHoyISO: prev.fechaHoyISO,\n    fechaHoyDisplay: prev.fechaHoyDisplay,\n    debug_htmlLength: html.length,\n    debug_viewstateFound: viewstate.length > 0,\n    debug_excelFound: excelTarget.length > 0,\n    debug_urlsFound: Object.keys(urlMap).length,\n  }\n}];\n"
+      }
     },
     {
       "name": "Descargar Excel",
@@ -38,7 +41,10 @@
       "name": "Mapear y Calcular Score",
       "type": "n8n-nodes-base.code",
       "notes": "runOnceForAllItems. Filtra por rubros activos (keyword matching sobre título normalizado), calcula score 0-100 (rubro 50 + monto 15 + días_al_cierre 15 + participación_previa 0 en MVP). Retorna 1 item con array licitaciones[] + stats (count, alta, media, baja, fechaHoy). La columna de título se detecta dinámicamente con Object.keys().find() para tolerar variaciones en el Excel de ComprAR.",
-      "code": "const RUBROS = {\n  informatica: ['informatic','tecnolog','software','hardware','sistema','licencia','computadora','servidor','internet','digital','electroni','impres','monitor','teclado','mouse','router','switch','firewall','ups'],\n  ferreteria: ['ferreter','herramienta','tornillo','pintura','construcc','materiales','buloneria','soldadura','caño','tubo','cable elect'],\n  indumentaria: ['indumentaria','calzado','ropa','uniforme','vestimenta','textil','tela','prenda','campera','pantalon','camisa','bota'],\n  epp: ['epp','protecci personal','casco','guante','chaleco','barbijo','seguridad laboral','equipo de protecci','antiparras','respirador','mameluco','arnes'],\n  bazar: ['bazar','vajilla','utensilio','cocina','menaje','cristaler','cubierto','olla','bandeja','cafetera','dispenser'],\n  mantenimiento: ['mantenimiento','limpieza','edificio','plomeria','plomería','electricidad','electric','sanitario','aire acondicionado','ascensor','pintura','jardineria','jardinería','fumigacion','fumigación','conservacion','conservación','reparacion','reparación'],\n};\nconst norm = (s) => {\n  if (s === null || s === undefined) return '';\n  return String(s).toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');\n};\nconst prev = $('Preparar Fechas').item.json;\nconst hoyISO = prev.fechaHoyISO;\nconst hoyDisplay = prev.fechaHoyDisplay;\nlet alta = 0, media = 0, baja = 0;\nconst licitaciones = [];\nconst rows = $input.all();\nfor (const item of rows) {\n  const row = item.json;\n  if (!row || Object.keys(row).length === 0) continue;\n  const tituloKey = Object.keys(row).find(k => k.startsWith('Nombre') || k.startsWith('nombre'));\n  const titulo = (tituloKey ? String(row[tituloKey]) : '') || row['Descripcion'] || row['Descripción'] || '';\n  const numero = row['Número de Proceso'] || row['Numero de Proceso'] || row['número de proceso'] || '';\n  const organismo = row['Unidad Ejecutora'] || row['Organismo'] || row['unidad ejecutora'] || '';\n  const fechaCierreRaw = row['Fecha de Apertura'] || row['Fecha Apertura'] || '';\n  const fechaPubRaw = row['Fecha de Publicación'] || row['Fecha Publicacion'] || row['Fecha de Publicacion'] || '';\n  const montoRaw = row['Monto Estimado'] || row['Presupuesto Oficial'] || null;\n  const monto = montoRaw ? parseFloat(String(montoRaw).replace(/[$.,\\s]/g, '').replace(',', '.')) : null;\n  const tituloNorm = norm(titulo);\n  let rubroMatch = null;\n  for (const [rubro, keywords] of Object.entries(RUBROS)) {\n    if (keywords.some(kw => tituloNorm.includes(norm(kw)))) { rubroMatch = rubro; break; }\n  }\n  if (!rubroMatch) continue;\n  let fechaCierreISO = null, diasAlCierre = null;\n  const matchCierre = String(fechaCierreRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (matchCierre) {\n    const [, d, m, y] = matchCierre;\n    fechaCierreISO = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;\n    diasAlCierre = Math.ceil((new Date(fechaCierreISO + 'T23:59:59') - new Date(hoyISO + 'T00:00:00')) / 86400000);\n  }\n  let fechaPubISO = null;\n  const matchPub = String(fechaPubRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (matchPub) { const [, d, m, y] = matchPub; fechaPubISO = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`; }\n  let score = 50;\n  if (monto !== null && !isNaN(monto)) {\n    if (monto >= 5000000) score += 15; else if (monto >= 1000000) score += 10; else if (monto >= 500000) score += 5; else score += 2;\n  } else { score += 5; }\n  if (diasAlCierre !== null) {\n    if (diasAlCierre <= 0) score += 0; else if (diasAlCierre <= 3) score += 5; else if (diasAlCierre <= 7) score += 10; else if (diasAlCierre <= 15) score += 15; else score += 8;\n  }\n  const prioridad = score >= 70 ? 'alta' : score >= 40 ? 'media' : 'baja';\n  if (prioridad === 'alta') alta++; else if (prioridad === 'media') media++; else baja++;\n  licitaciones.push({ portal: 'nacional', numero: String(numero).trim(), titulo: String(titulo).trim(), organismo: String(organismo).trim(), rubro: rubroMatch, monto_estimado: (monto !== null && !isNaN(monto)) ? monto : null, fecha_publicacion: fechaPubISO, fecha_cierre: fechaCierreISO, url: null, estado: 'nueva', score, prioridad, participacion_previa: false });\n}\nreturn [{ json: { licitaciones, count: licitaciones.length, alta, media, baja, fechaHoy: hoyDisplay } }];"
+      "code": "const RUBROS = {\n  informatica: ['informatic','tecnolog','software','hardware','sistema','licencia','computadora','servidor','internet','digital','electroni','impres','monitor','teclado','mouse','router','switch','firewall','ups'],\n  ferreteria: ['ferreter','herramienta','tornillo','pintura','construcc','materiales','buloneria','soldadura','caño','tubo','cable elect'],\n  indumentaria: ['indumentaria','calzado','ropa','uniforme','vestimenta','textil','tela','prenda','campera','pantalon','camisa','bota'],\n  epp: ['epp','protecci personal','casco','guante','chaleco','barbijo','seguridad laboral','equipo de protecci','antiparras','respirador','mameluco','arnes'],\n  bazar: ['bazar','vajilla','utensilio','cocina','menaje','cristaler','cubierto','olla','bandeja','cafetera','dispenser'],\n  mantenimiento: ['mantenimiento','limpieza','edificio','plomeria','plomería','electricidad','electric','sanitario','aire acondicionado','ascensor','pintura','jardineria','jardinería','fumigacion','fumigación','conservacion','conservación','reparacion','reparación'],\n};\nconst norm = (s) => {\n  if (s === null || s === undefined) return '';\n  return String(s).toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');\n};\nconst prev = $('Preparar Fechas').item.json;\nconst hoyISO = prev.fechaHoyISO;\nconst hoyDisplay = prev.fechaHoyDisplay;\nlet alta = 0, media = 0, baja = 0;\nconst licitaciones = [];\nconst rows = $input.all();\nfor (const item of rows) {\n  const row = item.json;\n  if (!row || Object.keys(row).length === 0) continue;\n  const tituloKey = Object.keys(row).find(k => k.startsWith('Nombre') || k.startsWith('nombre'));\n  const titulo = (tituloKey ? String(row[tituloKey]) : '') || row['Descripcion'] || row['Descripción'] || '';\n  const numero = row['Número de Proceso'] || row['Numero de Proceso'] || row['número de proceso'] || '';\n  const organismo = row['Unidad Ejecutora'] || row['Organismo'] || row['unidad ejecutora'] || '';\n  const fechaCierreRaw = row['Fecha de Apertura'] || row['Fecha Apertura'] || '';\n  const fechaPubRaw = row['Fecha de Publicación'] || row['Fecha Publicacion'] || row['Fecha de Publicacion'] || '';\n  const montoRaw = row['Monto Estimado'] || row['Presupuesto Oficial'] || null;\n  const monto = montoRaw ? parseFloat(String(montoRaw).replace(/[$.,\\s]/g, '').replace(',', '.')) : null;\n  const tituloNorm = norm(titulo);\n  let rubroMatch = null;\n  for (const [rubro, keywords] of Object.entries(RUBROS)) {\n    if (keywords.some(kw => tituloNorm.includes(norm(kw)))) { rubroMatch = rubro; break; }\n  }\n  if (!rubroMatch) continue;\n  let fechaCierreISO = null, diasAlCierre = null;\n  const matchCierre = String(fechaCierreRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (matchCierre) {\n    const [, d, m, y] = matchCierre;\n    fechaCierreISO = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;\n    diasAlCierre = Math.ceil((new Date(fechaCierreISO + 'T23:59:59') - new Date(hoyISO + 'T00:00:00')) / 86400000);\n  }\n  let fechaPubISO = null;\n  const matchPub = String(fechaPubRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (matchPub) { const [, d, m, y] = matchPub; fechaPubISO = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`; }\n  let score = 50;\n  if (monto !== null && !isNaN(monto)) {\n    if (monto >= 5000000) score += 15; else if (monto >= 1000000) score += 10; else if (monto >= 500000) score += 5; else score += 2;\n  } else { score += 5; }\n  if (diasAlCierre !== null) {\n    if (diasAlCierre <= 0) score += 0; else if (diasAlCierre <= 3) score += 5; else if (diasAlCierre <= 7) score += 10; else if (diasAlCierre <= 15) score += 15; else score += 8;\n  }\n  const prioridad = score >= 70 ? 'alta' : score >= 40 ? 'media' : 'baja';\n  if (prioridad === 'alta') alta++; else if (prioridad === 'media') media++; else baja++;\n  licitaciones.push({ portal: 'nacional', numero: String(numero).trim(), titulo: String(titulo).trim(), organismo: String(organismo).trim(), rubro: rubroMatch, monto_estimado: (monto !== null && !isNaN(monto)) ? monto : null, fecha_publicacion: fechaPubISO, fecha_cierre: fechaCierreISO, url: null, estado: 'nueva', score, prioridad, participacion_previa: false });\n}\nreturn [{ json: { licitaciones, count: licitaciones.length, alta, media, baja, fechaHoy: hoyDisplay } }];",
+      "parameters": {
+        "jsCode": "const RUBROS = {\n  informatica: ['informatic','tecnolog','software','hardware','sistema','licencia','computadora','servidor','internet','digital','electroni','impres','monitor','teclado','mouse','router','switch','firewall','ups'],\n  ferreteria: ['ferreter','herramienta','tornillo','pintura','construcc','materiales','buloneria','soldadura','caño','tubo','cable elect'],\n  indumentaria: ['indumentaria','calzado','ropa','uniforme','vestimenta','textil','tela','prenda','campera','pantalon','camisa','bota'],\n  epp: ['epp','protecci personal','casco','guante','chaleco','barbijo','seguridad laboral','equipo de protecci','antiparras','respirador','mameluco','arnes'],\n  bazar: ['bazar','vajilla','utensilio','cocina','menaje','cristaler','cubierto','olla','bandeja','cafetera','dispenser'],\n  mantenimiento: ['mantenimiento','limpieza','edificio','plomeria','plomería','electricidad','electric','sanitario','aire acondicionado','ascensor','pintura','jardineria','jardinería','fumigacion','fumigación','conservacion','conservación','reparacion','reparación'],\n};\n\nconst norm = (s) => {\n  if (s === null || s === undefined) return '';\n  return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');\n};\n\nconst prev = $('Preparar Fechas').item.json;\nconst hoyISO = prev.fechaHoyISO;\nconst hoyDisplay = prev.fechaHoyDisplay;\n\n// urlMap extraído del HTML de búsqueda en el paso anterior\nconst urlMap = ($('Extraer ViewState').item.json.urlMap) || {};\n\nlet alta = 0, media = 0, baja = 0;\nconst licitaciones = [];\nconst rows = $input.all();\n\nfor (const item of rows) {\n  const row = item.json;\n  if (!row || Object.keys(row).length === 0) continue;\n\n  const tituloKey = Object.keys(row).find(k => k.startsWith('Nombre') || k.startsWith('nombre'));\n  const titulo = (tituloKey ? String(row[tituloKey]) : '') || row['Descripcion'] || row['Descripción'] || '';\n  const numero = row['Número de Proceso'] || row['Numero de Proceso'] || row['número de proceso'] || '';\n  const organismo = row['Unidad Ejecutora'] || row['Organismo'] || row['unidad ejecutora'] || '';\n  const fechaCierreRaw = row['Fecha de Apertura'] || row['Fecha Apertura'] || '';\n  const fechaPubRaw = row['Fecha de Publicación'] || row['Fecha Publicacion'] || row['Fecha de Publicacion'] || '';\n  const montoRaw = row['Monto Estimado'] || row['Presupuesto Oficial'] || null;\n  const monto = montoRaw ? parseFloat(String(montoRaw).replace(/[$.,' ]/g, '').replace(',', '.')) : null;\n\n  const tituloNorm = norm(titulo);\n  let rubroMatch = null;\n  for (const [rubro, keywords] of Object.entries(RUBROS)) {\n    if (keywords.some(kw => tituloNorm.includes(norm(kw)))) {\n      rubroMatch = rubro;\n      break;\n    }\n  }\n  if (!rubroMatch) continue;\n\n  let fechaCierreISO = null;\n  let diasAlCierre = null;\n  const matchCierre = String(fechaCierreRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (matchCierre) {\n    const [, d, mo, y] = matchCierre;\n    fechaCierreISO = `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`;\n    diasAlCierre = Math.ceil((new Date(fechaCierreISO + 'T23:59:59') - new Date(hoyISO + 'T00:00:00')) / 86400000);\n  }\n\n  let fechaPubISO = null;\n  const matchPub = String(fechaPubRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (matchPub) {\n    const [, d, mo, y] = matchPub;\n    fechaPubISO = `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`;\n  }\n\n  let score = 50;\n  if (monto !== null && !isNaN(monto)) {\n    if (monto >= 5000000) score += 15;\n    else if (monto >= 1000000) score += 10;\n    else if (monto >= 500000) score += 5;\n    else score += 2;\n  } else {\n    score += 5;\n  }\n  if (diasAlCierre !== null) {\n    if (diasAlCierre <= 0) score += 0;\n    else if (diasAlCierre <= 3) score += 5;\n    else if (diasAlCierre <= 7) score += 10;\n    else if (diasAlCierre <= 15) score += 15;\n    else score += 8;\n  }\n\n  const prioridad = score >= 70 ? 'alta' : score >= 40 ? 'media' : 'baja';\n  if (prioridad === 'alta') alta++;\n  else if (prioridad === 'media') media++;\n  else baja++;\n\n  const numeroTrim = String(numero).trim();\n  licitaciones.push({\n    portal: 'nacional',\n    numero: numeroTrim,\n    titulo: String(titulo).trim(),\n    organismo: String(organismo).trim(),\n    rubro: rubroMatch,\n    monto_estimado: (monto !== null && !isNaN(monto)) ? monto : null,\n    fecha_publicacion: fechaPubISO,\n    fecha_cierre: fechaCierreISO,\n    url: urlMap[numeroTrim] || null,\n    estado: 'nueva',\n    score,\n    prioridad,\n    participacion_previa: false,\n  });\n}\n\nreturn [{ json: { licitaciones, count: licitaciones.length, alta, media, baja, fechaHoy: hoyDisplay } }];\n"
+      }
     },
     {
       "name": "Preparar Filas",
@@ -99,12 +105,102 @@
     "prioridad": "alta: 70-100 | media: 40-69 | baja: 0-39"
   },
   "rubros_activos": {
-    "informatica": ["informatic", "tecnolog", "software", "hardware", "sistema", "licencia", "computadora", "servidor", "internet", "digital", "electroni", "impres", "monitor", "teclado", "mouse", "router", "switch", "firewall", "ups"],
-    "ferreteria": ["ferreter", "herramienta", "tornillo", "pintura", "construcc", "materiales", "buloneria", "soldadura", "caño", "tubo", "cable elect"],
-    "indumentaria": ["indumentaria", "calzado", "ropa", "uniforme", "vestimenta", "textil", "tela", "prenda", "campera", "pantalon", "camisa", "bota"],
-    "epp": ["epp", "protecci personal", "casco", "guante", "chaleco", "barbijo", "seguridad laboral", "equipo de protecci", "antiparras", "respirador", "mameluco", "arnes"],
-    "bazar": ["bazar", "vajilla", "utensilio", "cocina", "menaje", "cristaler", "cubierto", "olla", "bandeja", "cafetera", "dispenser"],
-    "mantenimiento": ["mantenimiento", "limpieza", "edificio", "plomeria", "plomería", "electricidad", "electric", "sanitario", "aire acondicionado", "ascensor", "pintura", "jardineria", "jardinería", "fumigacion", "fumigación", "conservacion", "conservación", "reparacion", "reparación"]
+    "informatica": [
+      "informatic",
+      "tecnolog",
+      "software",
+      "hardware",
+      "sistema",
+      "licencia",
+      "computadora",
+      "servidor",
+      "internet",
+      "digital",
+      "electroni",
+      "impres",
+      "monitor",
+      "teclado",
+      "mouse",
+      "router",
+      "switch",
+      "firewall",
+      "ups"
+    ],
+    "ferreteria": [
+      "ferreter",
+      "herramienta",
+      "tornillo",
+      "pintura",
+      "construcc",
+      "materiales",
+      "buloneria",
+      "soldadura",
+      "caño",
+      "tubo",
+      "cable elect"
+    ],
+    "indumentaria": [
+      "indumentaria",
+      "calzado",
+      "ropa",
+      "uniforme",
+      "vestimenta",
+      "textil",
+      "tela",
+      "prenda",
+      "campera",
+      "pantalon",
+      "camisa",
+      "bota"
+    ],
+    "epp": [
+      "epp",
+      "protecci personal",
+      "casco",
+      "guante",
+      "chaleco",
+      "barbijo",
+      "seguridad laboral",
+      "equipo de protecci",
+      "antiparras",
+      "respirador",
+      "mameluco",
+      "arnes"
+    ],
+    "bazar": [
+      "bazar",
+      "vajilla",
+      "utensilio",
+      "cocina",
+      "menaje",
+      "cristaler",
+      "cubierto",
+      "olla",
+      "bandeja",
+      "cafetera",
+      "dispenser"
+    ],
+    "mantenimiento": [
+      "mantenimiento",
+      "limpieza",
+      "edificio",
+      "plomeria",
+      "plomería",
+      "electricidad",
+      "electric",
+      "sanitario",
+      "aire acondicionado",
+      "ascensor",
+      "pintura",
+      "jardineria",
+      "jardinería",
+      "fumigacion",
+      "fumigación",
+      "conservacion",
+      "conservación",
+      "reparacion",
+      "reparación"
+    ]
   },
   "supabase": {
     "credential": "Supabase RODOLFO",
