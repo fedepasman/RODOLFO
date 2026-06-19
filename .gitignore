@@ -44,3 +44,6 @@ next-env.d.ts
 
 # Fuente redundante de skills n8n (ya instaladas en ~/.claude/skills)
 /.tooling
+
+# Dockerfile está en la raíz; no trackear la carpeta docker/
+n8n/docker/
