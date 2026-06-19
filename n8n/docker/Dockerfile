@@ -9,7 +9,7 @@
 # para no introducir un upgrade sorpresa. Reemplazá `latest` por tu tag actual
 # (lo ves en Easypanel → servicio n8n → Deployments, o en la UI: abajo a la izq).
 
-FROM docker.n8n.io/n8nio/n8n:latest
+FROM docker.n8n.io/n8nio/n8n:2.26.8
 
 USER root
 
