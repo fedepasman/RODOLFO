@@ -32,10 +32,12 @@ export async function proxy(request: NextRequest) {
   response.headers.set("x-nonce", nonce);
 
   // Set Content-Security-Policy header
+  // Note: unsafe-eval needed for React dev mode, unsafe-inline for Next.js
+  const isDev = process.env.NODE_ENV === "development";
   const cspHeader = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' https://cdn.jsdelivr.net`, // Allow Next.js scripts + CDN for fonts
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // Tailwind uses inline styles
+    `script-src 'self' 'nonce-${nonce}' https://cdn.jsdelivr.net${isDev ? " 'unsafe-eval' 'unsafe-inline'" : ""}`,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: https:",
     "connect-src 'self' https://azwplnjlkfcszbrfaehv.supabase.co https://www.googleapis.com https://accounts.google.com",
