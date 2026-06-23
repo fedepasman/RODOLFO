@@ -1,15 +1,18 @@
+import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { GoogleCalendarButton } from "./google-calendar-button";
 
 export async function GoogleCalendarCard() {
-  const supabase = createAdminClient();
+  const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
     return null;
   }
 
-  const { data: token } = await supabase
+  const adminClient = createAdminClient();
+
+  const { data: token } = await adminClient
     .from("google_tokens")
     .select("user_id")
     .eq("user_id", user.id)
