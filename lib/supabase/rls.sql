@@ -115,3 +115,49 @@ create policy "historial_insert_authenticated"
   on public.historial_estado for insert
   to authenticated
   with check ((select auth.uid()) = user_id);
+
+-- ============================================================================
+-- Políticas RLS para Google Calendar (Migración v6)
+-- ============================================================================
+
+-- google_tokens: cada usuario gestiona solo sus propios tokens
+-- No queremos que otros usuarios vean los tokens ajenos (por seguridad).
+-- ----------------------------------------------------------------------------
+create policy "google_tokens_select_own"
+  on public.google_tokens for select
+  to authenticated
+  using ((select auth.uid()) = user_id);
+
+create policy "google_tokens_insert_own"
+  on public.google_tokens for insert
+  to authenticated
+  with check ((select auth.uid()) = user_id);
+
+create policy "google_tokens_update_own"
+  on public.google_tokens for update
+  to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
+create policy "google_tokens_delete_own"
+  on public.google_tokens for delete
+  to authenticated
+  using ((select auth.uid()) = user_id);
+
+-- calendar_events: cada usuario gestiona solo sus propios eventos
+-- (mapeo de licitaciones a event_ids de Google Calendar)
+-- ----------------------------------------------------------------------------
+create policy "calendar_events_select_own"
+  on public.calendar_events for select
+  to authenticated
+  using ((select auth.uid()) = user_id);
+
+create policy "calendar_events_insert_own"
+  on public.calendar_events for insert
+  to authenticated
+  with check ((select auth.uid()) = user_id);
+
+create policy "calendar_events_delete_own"
+  on public.calendar_events for delete
+  to authenticated
+  using ((select auth.uid()) = user_id);

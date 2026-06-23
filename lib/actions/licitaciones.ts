@@ -126,10 +126,50 @@ export async function updateEstadoAction(
     estado_nuevo: parsed.data.estado,
   });
 
+  // Auto-sync a Google Calendar (si el usuario lo tiene conectado)
+  try {
+    console.log("[Calendar] Auto-sync started for estado:", parsed.data.estado);
+    const { syncLicitacion, deleteLicitacionEvent } = await import("@/lib/google/calendar");
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+
+    const adminClient = createAdminClient();
+    const { data: tokenExists, error: tokenError } = await adminClient
+      .from("google_tokens")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .single();
+
+    if (tokenError && tokenError.code !== 'PGRST116') {
+      console.error("[Calendar] Unexpected error checking tokens:", tokenError.code);
+    }
+
+    if (tokenExists) {
+      const estadosCalendar = ["seguimiento", "presentada"];
+      const licitacion = await getLicitacion(parsed.data.licitacion_id);
+
+      if (licitacion) {
+        if (estadosCalendar.includes(parsed.data.estado)) {
+          console.log("[Calendar] Syncing to Google Calendar");
+          const result = await syncLicitacion(user.id, licitacion);
+          if (result?.error) {
+            console.error("[Calendar] Sync failed:", result.error);
+          }
+        } else {
+          console.log("[Calendar] Removing from Google Calendar");
+          await deleteLicitacionEvent(user.id, parsed.data.licitacion_id);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("[Calendar] Auto-sync exception:", error instanceof Error ? error.message : "unknown");
+  }
+
   revalidatePath(`/licitaciones/${parsed.data.licitacion_id}`);
   revalidatePath("/licitaciones");
   revalidatePath("/dashboard");
   revalidatePath("/seguimiento");
+  revalidatePath("/presentadas");
+  revalidatePath("/metricas");
 
   return { error: null };
 }
@@ -257,11 +297,16 @@ export async function getLicitacionesPorFecha(fecha: string): Promise<Licitacion
   }
 
   const supabase = await createClient();
+  const [year, month, day] = fecha.split("-");
+  const nextDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day) + 1)
+    .toISOString()
+    .split("T")[0];
+
   const { data, error } = await supabase
     .from("licitaciones")
     .select("*")
-    .gte("created_at", `${fecha}T00:00:00`)
-    .lt("created_at", `${fecha}T23:59:59.999`)
+    .gte("created_at", `${fecha}T00:00:00Z`)
+    .lt("created_at", `${nextDate}T00:00:00Z`)
     .order("score", { ascending: false });
 
   if (error) {
@@ -270,6 +315,22 @@ export async function getLicitacionesPorFecha(fecha: string): Promise<Licitacion
   }
 
   return data ?? [];
+}
+
+export async function getLicitacionesResumenPorFecha(): Promise<Array<{ fecha: string; total: number }>> {
+  const allLicitaciones = await getLicitaciones();
+
+  const grouped = new Map<string, number>();
+  allLicitaciones.forEach((l) => {
+    if (!l.created_at) return;
+    // Usa UTC para evitar problemas de zona horaria
+    const fecha = l.created_at.split("T")[0];
+    grouped.set(fecha, (grouped.get(fecha) ?? 0) + 1);
+  });
+
+  return Array.from(grouped.entries())
+    .map(([fecha, total]) => ({ fecha, total }))
+    .sort((a, b) => b.fecha.localeCompare(a.fecha));
 }
 
 export async function getHistorialEstado(licitacion_id: string) {

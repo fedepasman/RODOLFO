@@ -2,6 +2,7 @@ import { getConfiguracion } from "@/lib/actions/configuracion";
 import { getRubros } from "@/lib/actions/rubros";
 import { ConfiguracionForm } from "@/components/licitaciones/configuracion-form";
 import { RubrosGestion } from "@/components/licitaciones/rubros-gestion";
+import { GoogleCalendarCard } from "@/components/configuracion/google-calendar-card";
 
 export default async function ConfiguracionPage() {
   const [config, rubros] = await Promise.all([getConfiguracion(), getRubros()]);
@@ -16,6 +17,7 @@ export default async function ConfiguracionPage() {
       </div>
       <ConfiguracionForm initial={config} />
       <RubrosGestion rubros={rubros} />
+      <GoogleCalendarCard />
     </div>
   );
 }

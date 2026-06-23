@@ -211,6 +211,68 @@ export interface Database {
           },
         ];
       };
+      google_tokens: {
+        Row: {
+          user_id: string;
+          access_token: string;
+          refresh_token: string;
+          expires_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          access_token: string;
+          refresh_token: string;
+          expires_at: string;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          access_token?: string;
+          refresh_token?: string;
+          expires_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "google_tokens_user_id_fkey";
+            columns: ["user_id"];
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      calendar_events: {
+        Row: {
+          licitacion_id: string;
+          user_id: string;
+          event_id: string;
+        };
+        Insert: {
+          licitacion_id: string;
+          user_id: string;
+          event_id: string;
+        };
+        Update: {
+          licitacion_id?: string;
+          user_id?: string;
+          event_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "calendar_events_licitacion_id_fkey";
+            columns: ["licitacion_id"];
+            referencedRelation: "licitaciones";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calendar_events_user_id_fkey";
+            columns: ["user_id"];
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: {};
     Functions: {};

@@ -14,8 +14,38 @@ import { createServerClient } from "@supabase/ssr";
  * Por eso CADA server action vuelve a verificar el usuario con getUser().
  * Ver SECURITY.md.
  */
+/**
+ * Generate a nonce for Content-Security-Policy.
+ * Must be unique per request to allow inline scripts from Next.js.
+ */
+function generateNonce(): string {
+  const array = new Uint8Array(16);
+  crypto.getRandomValues(array);
+  return Array.from(array, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
+
+  // Generate nonce for CSP
+  const nonce = generateNonce();
+  response.headers.set("x-nonce", nonce);
+
+  // Set Content-Security-Policy header
+  const cspHeader = [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' https://cdn.jsdelivr.net`, // Allow Next.js scripts + CDN for fonts
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // Tailwind uses inline styles
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: https:",
+    "connect-src 'self' https://azwplnjlkfcszbrfaehv.supabase.co https://www.googleapis.com https://accounts.google.com",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; ");
+
+  response.headers.set("Content-Security-Policy", cspHeader);
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

@@ -141,3 +141,28 @@ create table if not exists public.historial_estado (
 );
 
 create index if not exists historial_estado_licitacion_id_idx on public.historial_estado (licitacion_id);
+
+-- ----------------------------------------------------------------------------
+-- Tabla: google_tokens (tokens OAuth de Google Calendar por usuario)
+-- Migración v6: Integración Google Calendar
+-- ----------------------------------------------------------------------------
+create table if not exists public.google_tokens (
+  user_id       uuid primary key references auth.users (id) on delete cascade,
+  access_token  text not null,
+  refresh_token text not null,
+  expires_at    timestamptz not null,
+  updated_at    timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
+-- Tabla: calendar_events (mapeo de licitaciones a eventos de Google Calendar)
+-- Migración v6: Integración Google Calendar
+-- ----------------------------------------------------------------------------
+create table if not exists public.calendar_events (
+  licitacion_id uuid not null references public.licitaciones (id) on delete cascade,
+  user_id       uuid not null references auth.users (id) on delete cascade,
+  event_id      text not null,
+  primary key (licitacion_id, user_id)
+);
+
+create index if not exists calendar_events_user_id_idx on public.calendar_events (user_id);

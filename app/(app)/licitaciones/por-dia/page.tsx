@@ -1,6 +1,7 @@
-import { getLicitacionesPorFecha } from "@/lib/actions/licitaciones";
+import { getLicitacionesPorFecha, getLicitacionesResumenPorFecha } from "@/lib/actions/licitaciones";
 import { LicitacionesTable } from "@/components/licitaciones/licitaciones-table";
 import { PorDiaNav } from "@/components/licitaciones/por-dia-nav";
+import { ResumenPorFecha } from "@/components/licitaciones/resumen-por-fecha";
 
 export default async function PorDiaPage({
   searchParams,
@@ -13,7 +14,12 @@ export default async function PorDiaPage({
   const todayStr = new Date().toISOString().split("T")[0];
   const fechaSeleccionada = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : todayStr;
 
-  const licitaciones = await getLicitacionesPorFecha(fechaSeleccionada);
+  const [licitaciones, resumen] = await Promise.all([
+    getLicitacionesPorFecha(fechaSeleccionada),
+    getLicitacionesResumenPorFecha(),
+  ]);
+
+  const totalDelDia = resumen.find((r) => r.fecha === fechaSeleccionada)?.total ?? 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -23,6 +29,8 @@ export default async function PorDiaPage({
           Licitaciones importadas en cada fecha, ordenadas por score.
         </p>
       </div>
+
+      <ResumenPorFecha fecha={fechaSeleccionada} total={totalDelDia} />
 
       <PorDiaNav fechaActual={fechaSeleccionada} todayStr={todayStr} />
 

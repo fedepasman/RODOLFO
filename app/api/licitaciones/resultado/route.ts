@@ -39,7 +39,8 @@ export async function POST(request: Request) {
     .eq("id", id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[Resultado] DB update failed:", error);
+    return NextResponse.json({ error: "No se pudo actualizar el resultado" }, { status: 500 });
   }
 
   revalidatePath("/presentadas");
