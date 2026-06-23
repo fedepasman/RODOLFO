@@ -104,7 +104,9 @@ export function buildCalendarEvent(licitacion: Licitacion) {
   return {
     summary: titulo,
     description: descripcion,
-    ...(dateTime ? { start: { dateTime }, end: { dateTime } } : { start: { date }, end: { date } }),
+    ...(dateTime
+      ? { start: { dateTime, timeZone: "America/Argentina/Buenos_Aires" }, end: { dateTime, timeZone: "America/Argentina/Buenos_Aires" } }
+      : { start: { date }, end: { date } }),
   };
 }
 

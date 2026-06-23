@@ -21,7 +21,8 @@
       "Bash(mkdir -p /Users/fedepasman/Documents/DESARROLLO/RODOLFO/app/\\\\\\(app\\\\\\)/calendario/\\\\[fecha\\\\])",
       "Bash(git reset *)",
       "Bash(rm /Users/fedepasman/Documents/DESARROLLO/RODOLFO/.git/hooks/pre-commit && echo \"✅ Hook removido\")",
-      "Bash(git clean *)"
+      "Bash(git clean *)",
+      "Bash(npm ls *)"
     ],
     "additionalDirectories": [
       "/Users/fedepasman/Documents/DESARROLLO/RODOLFO/app/(app)/calendario",
