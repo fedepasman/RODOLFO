@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PrioridadBadge } from "@/components/licitaciones/prioridad-badge";
 import { CambioEstado } from "@/components/licitaciones/cambio-estado";
+import { ResultadoBtn } from "@/components/licitaciones/resultado-btn";
 import { SeguimientoForm } from "@/components/licitaciones/seguimiento-form";
 import {
   getLicitacion,
@@ -164,6 +165,12 @@ export default async function LicitacionDetallePage({
 
         <div className="flex flex-col gap-4">
           <CambioEstado licitacionId={lic.id} estadoActual={lic.estado} />
+          {lic.estado === "presentada" && (
+            <div className="rounded-lg border border-gray-200 bg-white p-4">
+              <div className="text-sm font-medium text-gray-600 mb-2">Resultado</div>
+              <ResultadoBtn id={lic.id} resultado={lic.resultado} />
+            </div>
+          )}
           <SeguimientoForm
             licitacionId={lic.id}
             notaInicial={seguimiento?.nota ?? ""}
