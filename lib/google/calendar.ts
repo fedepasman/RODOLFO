@@ -74,11 +74,12 @@ export async function getCalendarClient(userId: string) {
 
 export function buildCalendarEvent(licitacion: Licitacion) {
   const titulo = licitacion.titulo || `Licitación ${licitacion.numero}`;
+  const linkDetalle = licitacion.url_detalle || `${process.env.NEXT_PUBLIC_SITE_URL}/licitaciones/${licitacion.id}`;
   const descripcion = [
     `Portal: ${licitacion.portal}`,
     `Número: ${licitacion.numero}`,
     `Organismo: ${licitacion.organismo}`,
-    `Link: ${process.env.NEXT_PUBLIC_SITE_URL}/licitaciones/${licitacion.id}`,
+    `Link: ${linkDetalle}`,
   ].join("\n");
 
   const fechaCierre = licitacion.fecha_cierre;

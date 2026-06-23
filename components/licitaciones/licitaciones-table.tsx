@@ -180,13 +180,13 @@ export function LicitacionesTable({ licitaciones, withEstadoFilter = true }: Pro
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-16">Acciones</TableHead>
-              <TableHead className="w-72">Título</TableHead>
-              <TableHead className="hidden lg:table-cell">Portal</TableHead>
-              <TableHead className="hidden lg:table-cell">Rubro</TableHead>
-              <TableHead className="hidden md:table-cell text-right">Monto est.</TableHead>
-              <TableHead className="hidden sm:table-cell">Cierre</TableHead>
-              <TableHead>Estado</TableHead>
+              <TableHead className="w-12">Acciones</TableHead>
+              <TableHead>Título</TableHead>
+              <TableHead className="hidden lg:table-cell whitespace-nowrap">Portal</TableHead>
+              <TableHead className="hidden lg:table-cell whitespace-nowrap">Rubro</TableHead>
+              <TableHead className="hidden md:table-cell text-right whitespace-nowrap">Monto</TableHead>
+              <TableHead className="hidden sm:table-cell whitespace-nowrap">Cierre</TableHead>
+              <TableHead className="whitespace-nowrap">Estado</TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
