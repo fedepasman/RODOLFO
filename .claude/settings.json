@@ -18,10 +18,14 @@
       "Bash(echo \"Sub: $\\(python3 -c \"import json; d=json.load\\(open\\('/Users/fedepasman/Documents/DESARROLLO/RODOLFO/n8n/workflows/comprar-scraper-subworkflow.json'\\)\\); print\\(d['name'], '|', d['updatedAt']\\)\"\\)\")",
       "Bash(node -e ' *)",
       "Bash(node -e \"console.log\\(require\\('/Users/fedepasman/Documents/DESARROLLO/RODOLFO/node_modules/next/package.json'\\).version\\)\")",
-      "Bash(mkdir -p /Users/fedepasman/Documents/DESARROLLO/RODOLFO/app/\\\\\\(app\\\\\\)/calendario/\\\\[fecha\\\\])"
+      "Bash(mkdir -p /Users/fedepasman/Documents/DESARROLLO/RODOLFO/app/\\\\\\(app\\\\\\)/calendario/\\\\[fecha\\\\])",
+      "Bash(git reset *)",
+      "Bash(rm /Users/fedepasman/Documents/DESARROLLO/RODOLFO/.git/hooks/pre-commit && echo \"✅ Hook removido\")",
+      "Bash(git clean *)"
     ],
     "additionalDirectories": [
-      "/Users/fedepasman/Documents/DESARROLLO/RODOLFO/app/(app)/calendario"
+      "/Users/fedepasman/Documents/DESARROLLO/RODOLFO/app/(app)/calendario",
+      "/Users/fedepasman/Documents/DESARROLLO/RODOLFO/.git/hooks"
     ]
   }
 }
