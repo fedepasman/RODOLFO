@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Menu, LayoutDashboard, FileText, Bookmark, Settings } from "lucide-react";
+import { Menu, LayoutDashboard, FileText, Bookmark, Settings, CalendarDays, CalendarRange } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -17,12 +17,21 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/licitaciones", label: "Licitaciones", icon: FileText },
+  { href: "/licitaciones/por-dia", label: "Por día", icon: CalendarDays },
+  { href: "/calendario", label: "Calendario", icon: CalendarRange },
   { href: "/seguimiento", label: "Seguimiento", icon: Bookmark },
   { href: "/configuracion", label: "Configuración", icon: Settings },
 ] as const;
 
+function bestMatch(pathname: string) {
+  return [...NAV]
+    .filter((item) => pathname === item.href || pathname.startsWith(item.href + "/"))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
+}
+
 export function MobileNav() {
   const pathname = usePathname();
+  const activeHref = bestMatch(pathname);
   const [open, setOpen] = useState(false);
 
   return (
@@ -46,7 +55,7 @@ export function MobileNav() {
         </SheetHeader>
         <nav className="flex flex-col gap-1 p-3">
           {NAV.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href || pathname.startsWith(`${href}/`);
+            const active = activeHref === href;
             return (
               <Link
                 key={href}

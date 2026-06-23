@@ -6,6 +6,17 @@ const en10dias = new Date(Date.now() + 10 * 86400000).toISOString().split("T")[0
 const en20dias = new Date(Date.now() + 20 * 86400000).toISOString().split("T")[0];
 const en3dias = new Date(Date.now() + 3 * 86400000).toISOString().split("T")[0];
 
+const sinDetalle = {
+  numero_expediente: null,
+  tipo_procedimiento: null,
+  modalidad: null,
+  cronograma_detalle: null,
+  renglones: null,
+  proveedores_invitados: null,
+  url_detalle: null,
+  revisada: false,
+} as const;
+
 export const MOCK_LICITACIONES: Licitacion[] = [
   {
     id: "1",
@@ -23,6 +34,7 @@ export const MOCK_LICITACIONES: Licitacion[] = [
     prioridad: "alta",
     participacion_previa: true,
     created_at: new Date().toISOString(),
+    ...sinDetalle,
   },
   {
     id: "2",
@@ -40,6 +52,7 @@ export const MOCK_LICITACIONES: Licitacion[] = [
     prioridad: "alta",
     participacion_previa: false,
     created_at: new Date().toISOString(),
+    ...sinDetalle,
   },
   {
     id: "3",
@@ -57,6 +70,7 @@ export const MOCK_LICITACIONES: Licitacion[] = [
     prioridad: "media",
     participacion_previa: false,
     created_at: new Date().toISOString(),
+    ...sinDetalle,
   },
   {
     id: "4",
@@ -74,6 +88,7 @@ export const MOCK_LICITACIONES: Licitacion[] = [
     prioridad: "media",
     participacion_previa: false,
     created_at: new Date().toISOString(),
+    ...sinDetalle,
   },
   {
     id: "5",
@@ -91,6 +106,7 @@ export const MOCK_LICITACIONES: Licitacion[] = [
     prioridad: "alta",
     participacion_previa: true,
     created_at: new Date().toISOString(),
+    ...sinDetalle,
   },
   {
     id: "6",
@@ -108,6 +124,7 @@ export const MOCK_LICITACIONES: Licitacion[] = [
     prioridad: "alta",
     participacion_previa: true,
     created_at: new Date().toISOString(),
+    ...sinDetalle,
   },
   {
     id: "7",
@@ -125,6 +142,7 @@ export const MOCK_LICITACIONES: Licitacion[] = [
     prioridad: "alta",
     participacion_previa: true,
     created_at: new Date().toISOString(),
+    ...sinDetalle,
   },
   {
     id: "8",
@@ -142,6 +160,7 @@ export const MOCK_LICITACIONES: Licitacion[] = [
     prioridad: "baja",
     participacion_previa: false,
     created_at: new Date().toISOString(),
+    ...sinDetalle,
   },
   {
     id: "9",
@@ -159,6 +178,7 @@ export const MOCK_LICITACIONES: Licitacion[] = [
     prioridad: "baja",
     participacion_previa: false,
     created_at: new Date().toISOString(),
+    ...sinDetalle,
   },
   {
     id: "10",
@@ -176,5 +196,6 @@ export const MOCK_LICITACIONES: Licitacion[] = [
     prioridad: "media",
     participacion_previa: false,
     created_at: new Date().toISOString(),
+    ...sinDetalle,
   },
 ];

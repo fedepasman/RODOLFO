@@ -24,6 +24,16 @@ export interface Database {
           prioridad: "alta" | "media" | "baja";
           participacion_previa: boolean;
           created_at: string;
+          // Detalle enriquecido desde ComprAR (scraping Puppeteer en n8n)
+          numero_expediente: string | null;
+          tipo_procedimiento: string | null;
+          modalidad: string | null;
+          cronograma_detalle: Json | null;
+          renglones: Json | null;
+          proveedores_invitados: Json | null;
+          url_detalle: string | null;
+          revisada: boolean;
+          resultado: 'ganada' | 'perdida' | 'desierta' | null;
         };
         Insert: {
           id?: string;
@@ -41,6 +51,15 @@ export interface Database {
           prioridad?: "alta" | "media" | "baja";
           participacion_previa?: boolean;
           created_at?: string;
+          numero_expediente?: string | null;
+          tipo_procedimiento?: string | null;
+          modalidad?: string | null;
+          cronograma_detalle?: Json | null;
+          renglones?: Json | null;
+          proveedores_invitados?: Json | null;
+          url_detalle?: string | null;
+          revisada?: boolean;
+          resultado?: 'ganada' | 'perdida' | 'desierta' | null;
         };
         Update: {
           id?: string;
@@ -58,6 +77,15 @@ export interface Database {
           prioridad?: "alta" | "media" | "baja";
           participacion_previa?: boolean;
           created_at?: string;
+          numero_expediente?: string | null;
+          tipo_procedimiento?: string | null;
+          modalidad?: string | null;
+          cronograma_detalle?: Json | null;
+          renglones?: Json | null;
+          proveedores_invitados?: Json | null;
+          url_detalle?: string | null;
+          revisada?: boolean;
+          resultado?: 'ganada' | 'perdida' | 'desierta' | null;
         };
         Relationships: [];
       };

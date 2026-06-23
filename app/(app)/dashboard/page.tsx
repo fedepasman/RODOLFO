@@ -18,13 +18,15 @@ export default async function DashboardPage() {
   const altaPrioridad = activas.filter((l) => l.prioridad === "alta").length;
   const enSeguimiento = activas.filter((l) => l.estado === "seguimiento").length;
   const presentadas = licitaciones.filter((l) => l.estado === "presentada").length;
+  const sinRevisar = activas.filter((l) => !l.revisada).length;
 
   const urgentes = activas
     .filter((l) => {
+      if (l.estado !== "seguimiento") return false;
       if (!l.fecha_cierre) return false;
       const cierre = new Date(l.fecha_cierre + "T00:00:00");
       const dias = Math.ceil((cierre.getTime() - hoy.getTime()) / 86400000);
-      return dias >= 0 && dias <= 7;
+      return dias >= 0 && dias <= 15;
     })
     .sort((a, b) => {
       const da = new Date(a.fecha_cierre! + "T00:00:00").getTime();
@@ -34,6 +36,7 @@ export default async function DashboardPage() {
 
   const kpis = [
     { label: "Activas", value: total },
+    { label: "Sin revisar", value: sinRevisar },
     { label: "Alta prioridad", value: altaPrioridad },
     { label: "En seguimiento", value: enSeguimiento },
     { label: "Presentadas", value: presentadas },
@@ -48,7 +51,7 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
         {kpis.map((kpi) => (
           <Card key={kpi.label}>
             <CardHeader className="pb-2">
@@ -68,7 +71,7 @@ export default async function DashboardPage() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base text-orange-700 dark:text-orange-400">
               <AlertTriangle className="size-4" />
-              Vencen en los próximos 7 días ({urgentes.length})
+              En seguimiento · vencen en 15 días ({urgentes.length})
             </CardTitle>
           </CardHeader>
           <CardContent>

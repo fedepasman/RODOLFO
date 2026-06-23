@@ -39,6 +39,7 @@ export const RUBROS = [
   { id: "epp", label: "EPP (Protección Personal)" },
   { id: "bazar", label: "Bazar y vajilla" },
   { id: "mantenimiento", label: "Mantenimiento y servicios" },
+  { id: "sin_clasificar", label: "Sin clasificar" },
 ] as const;
 
 /**

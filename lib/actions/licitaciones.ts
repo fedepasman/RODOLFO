@@ -1,6 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
@@ -92,6 +91,7 @@ const updateEstadoSchema = z.object({
 });
 
 export type ActionResult = { error: string | null };
+
 
 export async function updateEstadoAction(
   _prev: ActionResult,
@@ -193,6 +193,85 @@ export async function getSeguimiento(licitacion_id: string) {
   return data ?? null;
 }
 
+export async function getLicitacionesPorMes(year: number, month: number): Promise<Licitacion[]> {
+  const mm = String(month).padStart(2, "0");
+  const from = `${year}-${mm}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const to = `${year}-${mm}-${String(lastDay).padStart(2, "0")}`;
+
+  if (!isSupabaseConfigured()) {
+    return MOCK_LICITACIONES.filter(
+      (l) =>
+        l.fecha_cierre &&
+        l.fecha_cierre >= from &&
+        l.fecha_cierre <= to &&
+        l.estado !== "descartada",
+    );
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("licitaciones")
+    .select("*")
+    .gte("fecha_cierre", from)
+    .lte("fecha_cierre", to)
+    .neq("estado", "descartada")
+    .order("fecha_cierre", { ascending: true });
+
+  if (error) {
+    console.error("[licitaciones] Error al filtrar por mes:", error.message);
+    return [];
+  }
+
+  return data ?? [];
+}
+
+export async function getLicitacionesPorCierre(fecha: string): Promise<Licitacion[]> {
+  if (!isSupabaseConfigured()) {
+    return MOCK_LICITACIONES.filter(
+      (l) => l.fecha_cierre === fecha && (l.estado === "seguimiento" || l.estado === "presentada"),
+    );
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("licitaciones")
+    .select("*")
+    .eq("fecha_cierre", fecha)
+    .in("estado", ["seguimiento", "presentada"])
+    .order("score", { ascending: false });
+
+  if (error) {
+    console.error("[licitaciones] Error al filtrar por cierre:", error.message);
+    return [];
+  }
+
+  return data ?? [];
+}
+
+export async function getLicitacionesPorFecha(fecha: string): Promise<Licitacion[]> {
+  if (!isSupabaseConfigured()) {
+    return MOCK_LICITACIONES.filter(
+      (l) => l.created_at?.startsWith(fecha) ?? false,
+    );
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("licitaciones")
+    .select("*")
+    .gte("created_at", `${fecha}T00:00:00`)
+    .lt("created_at", `${fecha}T23:59:59.999`)
+    .order("score", { ascending: false });
+
+  if (error) {
+    console.error("[licitaciones] Error al filtrar por fecha:", error.message);
+    return [];
+  }
+
+  return data ?? [];
+}
+
 export async function getHistorialEstado(licitacion_id: string) {
   if (!isSupabaseConfigured()) return [];
 
@@ -205,4 +284,79 @@ export async function getHistorialEstado(licitacion_id: string) {
     .order("created_at", { ascending: false });
 
   return data ?? [];
+}
+
+const updateResultadoSchema = z.object({
+  licitacion_id: z.string().uuid(),
+  resultado: z.enum(["ganada", "perdida", "desierta"]).nullable(),
+});
+
+export async function updateResultadoAction(
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  await requireUser();
+
+  const raw = formData.get("resultado");
+  const parsed = updateResultadoSchema.safeParse({
+    licitacion_id: formData.get("licitacion_id"),
+    resultado: raw === "" || raw === "pendiente" ? null : raw,
+  });
+
+  if (!parsed.success) {
+    return { error: "Datos inválidos" };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("licitaciones")
+    .update({ resultado: parsed.data.resultado })
+    .eq("id", parsed.data.licitacion_id);
+
+  if (error) {
+    return { error: "No se pudo actualizar el resultado" };
+  }
+
+  revalidatePath("/presentadas");
+  revalidatePath("/metricas");
+
+  return { error: null };
+}
+
+const marcarRevisadaSchema = z.object({
+  id: z.string().uuid(),
+  revisada: z.boolean(),
+});
+
+export async function marcarRevisadaAction(
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  await requireUser();
+
+  const parsed = marcarRevisadaSchema.safeParse({
+    id: formData.get("id"),
+    revisada: formData.get("revisada") === "true",
+  });
+
+  if (!parsed.success) {
+    return { error: "Datos inválidos" };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("licitaciones")
+    .update({ revisada: parsed.data.revisada })
+    .eq("id", parsed.data.id);
+
+  if (error) {
+    return { error: "No se pudo actualizar" };
+  }
+
+  revalidatePath("/licitaciones");
+  revalidatePath("/dashboard");
+  revalidatePath("/presentadas");
+  revalidatePath("/seguimiento");
+
+  return { error: null };
 }

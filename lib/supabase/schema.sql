@@ -46,6 +46,45 @@ create index if not exists licitaciones_fecha_cierre_idx on public.licitaciones 
 create index if not exists licitaciones_score_idx        on public.licitaciones (score desc);
 create index if not exists licitaciones_created_at_idx   on public.licitaciones (created_at desc);
 
+-- Migración v4: Campo revisada para marcar licitaciones ya analizadas
+alter table public.licitaciones
+  add column if not exists revisada boolean not null default false;
+
+create index if not exists licitaciones_revisada_idx on public.licitaciones (revisada);
+
+-- Migración v5: Resultado de licitaciones presentadas
+alter table public.licitaciones
+  add column if not exists resultado text check (resultado in ('ganada', 'perdida', 'desierta'));
+
+-- ----------------------------------------------------------------------------
+-- Migración v2: Detalle enriquecido desde ComprAR (scraping Puppeteer en n8n)
+-- Ejecutar en Supabase SQL Editor DESPUÉS de la migración inicial.
+-- ----------------------------------------------------------------------------
+alter table public.licitaciones
+  add column if not exists numero_expediente    text,
+  add column if not exists tipo_procedimiento   text,
+  add column if not exists modalidad            text,
+  add column if not exists cronograma_detalle   jsonb,   -- {publicacion, fin_consultas, apertura}
+  add column if not exists renglones            jsonb,   -- [{descripcion, cantidad, unidad, codigo}]
+  add column if not exists proveedores_invitados jsonb,  -- [{razon_social, cuit}]
+  add column if not exists url_detalle          text;    -- URL real capturada por Puppeteer
+
+-- ----------------------------------------------------------------------------
+-- Migración v3: Rubros configurables con keywords dinámicas
+-- Ejecutar en Supabase SQL Editor DESPUÉS de schema.sql + rls.sql.
+-- ----------------------------------------------------------------------------
+create table if not exists public.rubros (
+  id        uuid primary key default gen_random_uuid(),
+  nombre    text not null unique check (nombre ~ '^[a-z_]+$'),
+  label     text not null,
+  keywords  text[] not null default '{}',
+  activo    boolean not null default true,
+  orden     integer not null default 0
+);
+
+create index if not exists rubros_activo_idx on public.rubros (activo);
+create index if not exists rubros_orden_idx  on public.rubros (orden);
+
 -- ----------------------------------------------------------------------------
 -- Tabla: seguimientos (notas + adjuntos por usuario sobre una licitación)
 -- ----------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -11,7 +12,6 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { ESTADO_LABEL, type EstadoLicitacion } from "@/types/licitaciones";
-import { updateEstadoAction, type ActionResult } from "@/lib/actions/licitaciones";
 
 interface Props {
   licitacionId: string;
@@ -19,10 +19,35 @@ interface Props {
 }
 
 const FLUJO: EstadoLicitacion[] = ["nueva", "seguimiento", "presentada", "descartada"];
-const initialState: ActionResult = { error: null };
 
 export function CambioEstado({ licitacionId, estadoActual }: Props) {
-  const [state, formAction, pending] = useActionState(updateEstadoAction, initialState);
+  const [estado, setEstado] = useState<EstadoLicitacion>(estadoActual);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setPending(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/licitaciones/estado", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: licitacionId, estado }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Error al guardar");
+      } else {
+        router.refresh();
+      }
+    } catch {
+      setError("Error de conexión");
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
     <Card>
@@ -30,23 +55,23 @@ export function CambioEstado({ licitacionId, estadoActual }: Props) {
         <CardTitle className="text-base">Estado</CardTitle>
       </CardHeader>
       <CardContent>
-        <form action={formAction} className="flex flex-col gap-2">
-          <input type="hidden" name="licitacion_id" value={licitacionId} />
-          <Select name="estado" defaultValue={estadoActual}>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+          <Select
+            value={estado}
+            onValueChange={(v) => setEstado(v as EstadoLicitacion)}
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {FLUJO.map((estado) => (
-                <SelectItem key={estado} value={estado}>
-                  {ESTADO_LABEL[estado]}
+              {FLUJO.map((e) => (
+                <SelectItem key={e} value={e}>
+                  {ESTADO_LABEL[e]}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          {state.error && (
-            <p className="text-xs text-destructive">{state.error}</p>
-          )}
+          {error && <p className="text-xs text-destructive">{error}</p>}
           <Button type="submit" size="sm" disabled={pending}>
             {pending ? "Guardando…" : "Guardar estado"}
           </Button>

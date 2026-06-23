@@ -1,217 +1,676 @@
 {
+  "updatedAt": "2026-06-22T17:38:26.324Z",
+  "createdAt": "2026-06-19T03:34:52.435Z",
   "id": "srvQpSkNQMS80ZbA",
   "name": "Licitaciones ComprAR - Importación Diaria",
+  "description": "",
   "active": true,
+  "isArchived": false,
   "nodes": [
     {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 11 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "node-schedule",
       "name": "Cron Diario",
       "type": "n8n-nodes-base.scheduleTrigger",
-      "notes": "Lunes a viernes 8am Buenos Aires (11:00 UTC). Cron: 0 11 * * 1-5"
+      "typeVersion": 1.2,
+      "position": [
+        -176,
+        -224
+      ]
     },
     {
+      "parameters": {
+        "jsCode": "const now=new Date();\nconst pad=(n)=>n.toString().padStart(2,'0');\nconst fmtDDMMYYYY=(d)=>`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;\nconst fmtISO=(d)=>d.toISOString().split('T')[0];\nlet rubros=[];\ntry{\n  const supaUrl='https://azwplnjlkfcszbrfaehv.supabase.co';\n  const supaKey=$env.SUPABASE_ANON_KEY||'';\n  if(supaKey){\n    const res=await fetch(supaUrl+'/rest/v1/rubros?activo=eq.true&select=nombre,keywords&order=orden.asc',{headers:{apikey:supaKey,Authorization:'Bearer '+supaKey}});\n    if(res.ok)rubros=await res.json();\n  }\n}catch(e){rubros=[];}\nreturn[{json:{fechaHoyISO:fmtISO(now),fechaHoyDisplay:fmtDDMMYYYY(now),rubros}}];"
+      },
+      "id": "node-fechas",
       "name": "Preparar Fechas",
       "type": "n8n-nodes-base.code",
-      "notes": "Calcula ayer y hoy en DD/MM/YYYY e ISO (YYYY-MM-DD) para filtrar ComprAR por fecha de publicación.",
-      "code": "const now = new Date();\nconst ayer = new Date(now);\nayer.setDate(ayer.getDate() - 1);\nconst pad = n => String(n).padStart(2, '0');\nconst fmt = d => `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;\nconst iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;\nreturn [{ json: {\n  fechaAyerDisplay: fmt(ayer),\n  fechaHoyDisplay: fmt(now),\n  fechaAyerISO: iso(ayer),\n  fechaHoyISO: iso(now)\n}}];"
+      "typeVersion": 2,
+      "position": [
+        48,
+        -224
+      ]
     },
     {
-      "name": "GET ComprAR",
-      "type": "n8n-nodes-base.httpRequest",
-      "notes": "GET https://comprar.gob.ar/Compras.aspx con params fechaDesde/fechaHasta. Devuelve HTML con ViewState ASP.NET."
-    },
-    {
-      "name": "Extraer ViewState",
-      "type": "n8n-nodes-base.code",
-      "notes": "Extrae __VIEWSTATE, __EVENTVALIDATION y el ID del botón Excel del HTML de ASP.NET WebForms. El excelTarget se usa en el POST para disparar la descarga.",
       "parameters": {
-        "jsCode": "const html = $input.first().json.data;\n\nif (!html || typeof html !== 'string') {\n  throw new Error('ComprAR no devolvió HTML válido. Status: ' + JSON.stringify($input.first().json));\n}\n\nconst getHidden = (id) => {\n  const m = html.match(new RegExp(`name=\"${id}\"[^>]*value=\"([^\"]*)\"`, 'i'))\n           || html.match(new RegExp(`id=\"${id}\"\\\\s+value=\"([^\"]*)\"`, 'i'));\n  return m ? m[1] : '';\n};\n\nconst viewstate = getHidden('__VIEWSTATE');\nconst eventvalidation = getHidden('__EVENTVALIDATION');\nconst viewstateGenerator = getHidden('__VIEWSTATEGENERATOR');\n\nlet excelTarget = '';\nconst patterns = [\n  /__doPostBack\\('([^']*(?:xcel|xport|Export|Excel|escargar|nform)[^']*)',''/i,\n  /href=\"javascript:__doPostBack\\('([^']*)','(?:|Excel|export)'\\)\"[^>]*>[^<]*[Ee]xcel/i\n];\nfor (const p of patterns) {\n  const m = html.match(p);\n  if (m) { excelTarget = m[1]; break; }\n}\n\n// Extraer links de detalle de cada licitación del HTML de resultados.\n// Cada fila tiene un anchor apuntando a VistaPreviaPliegoCiudadano.aspx?qs=<token>\n// El token es opaco (firmado por el server), no reconstruible desde el numero.\nconst urlMap = {};\nconst urlRegex = /(?:href|action)=['\"]([^'\"]*VistaPreviaPliegoCiudadano\\.aspx\\?qs=[^'\"]*)['\"]|window\\.(?:open|location\\.href)\\s*=?\\s*['\"]([^'\"]*VistaPreviaPliegoCiudadano\\.aspx\\?qs=[^'\"]*)['\"]/gi;\nconst allUrls = [];\nlet m;\nwhile ((m = urlRegex.exec(html)) !== null) {\n  let rawUrl = (m[1] || m[2]).replace(/&amp;/g, '&');\n  const url = rawUrl.startsWith('http') ? rawUrl : 'https://comprar.gob.ar' + rawUrl;\n  allUrls.push({ index: m.index, url });\n}\n\n// Número de proceso: formato dd/ddd-dddd-LETRASdd (ej: 84/37-0355-LPU26)\nconst numRegex = /\\b(\\d{2,4}\\/\\d{2,4}-\\d{3,6}-[A-Z]{2,6}\\d{1,4})\\b/g;\nconst allNumeros = [];\nwhile ((m = numRegex.exec(html)) !== null) {\n  allNumeros.push({ index: m.index, numero: m[1] });\n}\n\n// Para cada URL encontrada, asociar con el número de proceso más cercano (anterior en el HTML)\nfor (const { index: urlIdx, url } of allUrls) {\n  let closest = null;\n  for (const { index: numIdx, numero } of allNumeros) {\n    if (numIdx < urlIdx && (closest === null || numIdx > closest.index)) {\n      closest = { index: numIdx, numero };\n    }\n  }\n  if (closest) urlMap[closest.numero] = url;\n}\n\nconst prev = $('Preparar Fechas').item.json;\n\nreturn [{\n  json: {\n    viewstate,\n    eventvalidation,\n    viewstateGenerator,\n    excelTarget,\n    urlMap,\n    fechaDesde: prev.fechaDesde,\n    fechaHasta: prev.fechaHasta,\n    fechaHoyISO: prev.fechaHoyISO,\n    fechaHoyDisplay: prev.fechaHoyDisplay,\n    debug_htmlLength: html.length,\n    debug_viewstateFound: viewstate.length > 0,\n    debug_excelFound: excelTarget.length > 0,\n    debug_urlsFound: Object.keys(urlMap).length,\n  }\n}];\n"
-      }
+        "jsCode": "const { spawn } = require('child_process');\n\nconst SCRAPER = `(async () => {\n  const puppeteer = require('/usr/local/lib/node_modules/puppeteer');\n  let browser;\n  try {\n    browser = await puppeteer.launch({\n      executablePath: '/usr/bin/chromium-browser',\n      args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--single-process','--no-zygote'],\n      headless: true, timeout: 60000,\n    });\n    const page = await browser.newPage();\n    page.setDefaultNavigationTimeout(30000);\n    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');\n    await page.goto('https://comprar.gob.ar/Compras.aspx?qs=W1HXHGHtH10=', { waitUntil: 'domcontentloaded', timeout: 45000 });\n    await new Promise(r => setTimeout(r, 4000));\n    const pageInfo = await page.evaluate(() => {\n      const btn = document.getElementById('ctl00_CPH1_btnDescargarReporteExcelAperturaProxima');\n      if (!btn) return { error: 'Boton no encontrado' };\n      const vs = document.getElementById('__VIEWSTATE');\n      const vsGen = document.getElementById('__VIEWSTATEGENERATOR');\n      const evVal = document.getElementById('__EVENTVALIDATION');\n      const form = document.querySelector('form');\n      const hrefAttr = btn.getAttribute('href') || '';\n      const onclickAttr = btn.getAttribute('onclick') || '';\n      return { tagName: btn.tagName, href: btn.href, hrefAttr, onclickAttr, viewState: vs ? vs.value : null, vsGen: vsGen ? vsGen.value : null, eventValidation: evVal ? evVal.value : null, formAction: form ? form.action : window.location.href };\n    });\n    if (pageInfo.error) { process.stdout.write(JSON.stringify({ __error: pageInfo.error })); return; }\n    const hrefStr = pageInfo.hrefAttr || '';\n    const onclickStr = pageInfo.onclickAttr || '';\n    const doPostBackSrc = hrefStr + onclickStr;\n    const dpbMatch = doPostBackSrc.match(/__doPostBack\\\\('([^']+)'/);\n    const isDoPostBack = dpbMatch || doPostBackSrc.includes('__doPostBack');\n    if (!isDoPostBack && pageInfo.href && !pageInfo.href.startsWith('javascript') && pageInfo.href !== '#') {\n      const r = await page.evaluate(async (href, toB64Src) => {\n        const toBase64 = new Function('bytes', toB64Src);\n        const res = await fetch(href, { credentials: 'include' });\n        if (!res.ok) return { ok: false, err: 'HTTP ' + res.status };\n        const ct = res.headers.get('content-type') || '';\n        const buf = new Uint8Array(await res.arrayBuffer());\n        return { ok: true, data: toBase64(buf), mimeType: ct.split(';')[0].trim() || 'application/vnd.ms-excel' };\n      }, pageInfo.href, 'let bin=\"\";const ch=8192;for(let i=0;i<bytes.length;i+=ch){bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+ch));}return btoa(bin);');\n      if (r && r.ok) { process.stdout.write(JSON.stringify({ data: r.data, mimeType: r.mimeType, fileName: 'reporte.xlsx' })); return; }\n    }\n    const eventTarget = dpbMatch ? dpbMatch[1] : 'ctl00$CPH1$btnDescargarReporteExcelAperturaProxima';\n    const r2 = await page.evaluate(async (formAction, evtTarget, viewState, vsGen, evVal, toB64Src) => {\n      const toBase64 = new Function('bytes', toB64Src);\n      const params = new URLSearchParams();\n      params.set('__EVENTTARGET', evtTarget);\n      params.set('__EVENTARGUMENT', '');\n      if (viewState) params.set('__VIEWSTATE', viewState);\n      if (vsGen) params.set('__VIEWSTATEGENERATOR', vsGen);\n      if (evVal) params.set('__EVENTVALIDATION', evVal);\n      const res = await fetch(formAction, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, credentials: 'include', body: params.toString() });\n      if (!res.ok) return { ok: false, err: 'POST HTTP ' + res.status };\n      const ct = res.headers.get('content-type') || '';\n      const cd = res.headers.get('content-disposition') || '';\n      if (!ct.includes('excel') && !ct.includes('spreadsheet') && !ct.includes('octet-stream') && !cd.includes('.xls')) {\n        return { ok: false, err: 'content-type inesperado: ' + ct + ' | cd: ' + cd };\n      }\n      const bytes = new Uint8Array(await res.arrayBuffer());\n      return { ok: true, data: toBase64(bytes), mimeType: ct.split(';')[0].trim() || 'application/vnd.ms-excel' };\n    }, pageInfo.formAction, eventTarget, pageInfo.viewState, pageInfo.vsGen, pageInfo.eventValidation, 'let bin=\"\";const ch=8192;for(let i=0;i<bytes.length;i+=ch){bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+ch));}return btoa(bin);');\n    if (r2 && r2.ok) { process.stdout.write(JSON.stringify({ data: r2.data, mimeType: r2.mimeType, fileName: 'reporte.xlsx' })); return; }\n    process.stdout.write(JSON.stringify({ __error: 'Descarga fallida. r2: ' + JSON.stringify(r2) }));\n  } catch(e) {\n    process.stdout.write(JSON.stringify({ __error: String(e) }));\n  } finally {\n    if (browser) await browser.close().catch(() => {});\n  }\n})();`;\n\nconst stdout = await new Promise((resolve, reject) => {\n  let out = '';\n  const proc = spawn('node', ['-e', SCRAPER], {\n    env: { PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium-browser', PUPPETEER_SKIP_DOWNLOAD: 'true', NODE_PATH: '/usr/local/lib/node_modules', HOME: '/home/node', PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' }\n  });\n  proc.stdout.on('data', buf => { out += buf.toString(); });\n  proc.stderr.on('data', () => {});\n  const timer = setTimeout(() => { try{proc.kill();}catch(_){} reject(new Error('Timeout 120s')); }, 120000);\n  proc.on('close', () => { clearTimeout(timer); resolve(out); });\n  proc.on('error', err => { clearTimeout(timer); reject(err); });\n});\n\nconst result = JSON.parse(stdout);\nif (result.__error) return [{ json: { __error: result.__error } }];\nreturn [{ json: {}, binary: { data: { data: result.data, mimeType: result.mimeType, fileName: result.fileName } } }];"
+      },
+      "id": "node-descargar-excel",
+      "name": "Descargar Excel ComprAR",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        -224
+      ],
+      "onError": "continueRegularOutput"
     },
     {
-      "name": "Descargar Excel",
-      "type": "n8n-nodes-base.httpRequest",
-      "notes": "POST a ComprAR con ViewState + ID botón Excel → descarga el reporte XLS/XLSX completo (todos los resultados sin paginación)."
-    },
-    {
+      "parameters": {
+        "options": {
+          "headerRow": true,
+          "sheetName": ""
+        }
+      },
+      "id": "node-spreadsheet",
       "name": "Parsear Excel",
       "type": "n8n-nodes-base.spreadsheetFile",
-      "notes": "Lee el archivo binario y devuelve una fila por licitación (headerRow = primera fila)."
+      "typeVersion": 1,
+      "position": [
+        496,
+        -224
+      ]
     },
     {
+      "parameters": {
+        "jsCode": "const prev=$('Preparar Fechas').item.json;\nconst rubrosDB=Array.isArray(prev.rubros)&&prev.rubros.length>0?prev.rubros:null;\nconst RUBROS={};\nif(rubrosDB){for(const r of rubrosDB){if(r.nombre&&Array.isArray(r.keywords))RUBROS[r.nombre]=r.keywords;}}\nif(Object.keys(RUBROS).length===0){Object.assign(RUBROS,{informatica:['informatic','tecnolog','software','hardware','sistema','licencia','computadora','servidor','internet','digital','electroni','impres','monitor','teclado','mouse','router','switch','firewall','ups'],ferreteria:['ferreter','herramienta','tornillo','pintura','construcc','materiales','buloneria','soldadura','tubo','cable elect'],indumentaria:['indumentaria','calzado','ropa','uniforme','vestimenta','textil','tela','prenda','campera','pantalon','camisa','bota'],epp:['epp','protecci personal','casco','guante','chaleco','barbijo','seguridad laboral','antiparras','respirador','mameluco','arnes'],bazar:['bazar','vajilla','utensilio','cocina','menaje','cristaler','cubierto','olla','bandeja','cafetera','dispenser'],mantenimiento:['mantenimiento','limpieza','edificio','plomeria','electricidad','electric','sanitario','aire acondicionado','ascensor','pintura','jardineria','fumigacion','conservacion','reparacion']});}\nconst decodeHtml=(s)=>{if(!s)return'';const parts=String(s).split('&#');const out=[parts[0]];for(let i=1;i<parts.length;i++){const semi=parts[i].indexOf(';');if(semi<0){out.push('&#',parts[i]);continue;}const num=parseInt(parts[i].slice(0,semi),10);out.push(isNaN(num)?'&#'+parts[i]:String.fromCharCode(num)+parts[i].slice(semi+1));}return out.join('').replace(/&amp;/g,'&').replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'\"');};\nconst norm=(s)=>{if(s===null||s===undefined)return'';return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');};\nconst _normKey=(k)=>k.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');\nconst getCol=(row,keys)=>{for(const k of keys){if(row[k]!==undefined&&row[k]!==null&&row[k]!=='')return row[k];}return ''};\nconst hoyISO=prev.fechaHoyISO;const hoyDisplay=prev.fechaHoyDisplay;\nlet alta=0,media=0,baja=0;\nconst licitaciones=[];\nfor(const item of $input.all()){\n  const row=item.json;\n  if(!row||Object.keys(row).length===0)continue;\n  if(row.__noResults||row.__error)continue;\n  const tituloKey=Object.keys(row).find(k=>k.startsWith('Nombre')||k.startsWith('nombre'));\n  const titulo=decodeHtml((tituloKey?String(row[tituloKey]):'')||'');\n  const numeroKey=Object.keys(row).find(k=>{const kn=_normKey(k);return(kn.includes('numero')||kn.includes('nro'))&&(kn.includes('proceso')||kn.includes('expediente')||kn.includes('proc'));});\n  const numero=numeroKey?String(row[numeroKey]).trim():'';\n  if(!numero||numero.length<5||!numero.includes('/'))continue;\n  const organismo=decodeHtml(getCol(row,['Unidad Ejecutora','Unidad ejecutora','unidad ejecutora','Organismo','organismo','Servicio Administrativo Financiero']));\n  const fechaCierreRaw=getCol(row,['Fecha de Apertura','Fecha de apertura','Fecha apertura','Fecha Apertura']);\n  const fechaPubRaw=getCol(row,['Fecha de Publicacion','Fecha Publicacion','Fecha publicacion']);\n  const montoRaw=getCol(row,['Monto Estimado','Presupuesto Oficial','Monto estimado'])||null;\n  const monto=montoRaw?parseFloat(String(montoRaw).replace(/[$.,\\s]/g,'').replace(',','.')):null;\n  const tituloNorm=norm(titulo);\n  let rubroMatch=null;\n  for(const[rubro,keywords]of Object.entries(RUBROS)){if(keywords.some(kw=>tituloNorm.includes(norm(kw)))){rubroMatch=rubro;break;}}\n  let fechaCierreISO=null,diasAlCierre=null;\n  const mc=String(fechaCierreRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if(mc){const[,d,mo,y]=mc;fechaCierreISO=y+'-'+mo.padStart(2,'0')+'-'+d.padStart(2,'0');diasAlCierre=Math.ceil((new Date(fechaCierreISO+'T23:59:59')-new Date(hoyISO+'T00:00:00'))/86400000);}\n  let fechaPubISO=null;\n  const mp=String(fechaPubRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if(mp){const[,d,mo,y]=mp;fechaPubISO=y+'-'+mo.padStart(2,'0')+'-'+d.padStart(2,'0');}\n  if(fechaCierreISO&&diasAlCierre!==null&&diasAlCierre<0)continue;\n  let score=rubroMatch?50:0;\n  if(monto!==null&&!isNaN(monto)){if(monto>=5000000)score+=15;else if(monto>=1000000)score+=10;else if(monto>=500000)score+=5;else score+=2;}else score+=5;\n  if(diasAlCierre!==null){if(diasAlCierre<=0)score+=0;else if(diasAlCierre<=3)score+=5;else if(diasAlCierre<=7)score+=10;else if(diasAlCierre<=15)score+=15;else score+=8;}\n  const prioridad=score>=70?'alta':score>=40?'media':'baja';\n  if(prioridad==='alta')alta++;else if(prioridad==='media')media++;else baja++;\n  licitaciones.push({portal:'nacional',numero,titulo:titulo.trim(),organismo:String(organismo).trim(),rubro:rubroMatch??'sin_clasificar',monto_estimado:(monto!==null&&!isNaN(monto))?monto:null,fecha_publicacion:fechaPubISO,fecha_cierre:fechaCierreISO,url:null,estado:'nueva',score,prioridad,participacion_previa:false});\n}\nreturn[{json:{licitaciones,count:licitaciones.length,alta,media,baja,fechaHoy:hoyDisplay}}];"
+      },
+      "id": "node-score",
       "name": "Mapear y Calcular Score",
       "type": "n8n-nodes-base.code",
-      "notes": "runOnceForAllItems. Filtra por rubros activos (keyword matching sobre título normalizado), calcula score 0-100 (rubro 50 + monto 15 + días_al_cierre 15 + participación_previa 0 en MVP). Retorna 1 item con array licitaciones[] + stats (count, alta, media, baja, fechaHoy). La columna de título se detecta dinámicamente con Object.keys().find() para tolerar variaciones en el Excel de ComprAR.",
-      "code": "const RUBROS = {\n  informatica: ['informatic','tecnolog','software','hardware','sistema','licencia','computadora','servidor','internet','digital','electroni','impres','monitor','teclado','mouse','router','switch','firewall','ups'],\n  ferreteria: ['ferreter','herramienta','tornillo','pintura','construcc','materiales','buloneria','soldadura','caño','tubo','cable elect'],\n  indumentaria: ['indumentaria','calzado','ropa','uniforme','vestimenta','textil','tela','prenda','campera','pantalon','camisa','bota'],\n  epp: ['epp','protecci personal','casco','guante','chaleco','barbijo','seguridad laboral','equipo de protecci','antiparras','respirador','mameluco','arnes'],\n  bazar: ['bazar','vajilla','utensilio','cocina','menaje','cristaler','cubierto','olla','bandeja','cafetera','dispenser'],\n  mantenimiento: ['mantenimiento','limpieza','edificio','plomeria','plomería','electricidad','electric','sanitario','aire acondicionado','ascensor','pintura','jardineria','jardinería','fumigacion','fumigación','conservacion','conservación','reparacion','reparación'],\n};\nconst norm = (s) => {\n  if (s === null || s === undefined) return '';\n  return String(s).toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');\n};\nconst prev = $('Preparar Fechas').item.json;\nconst hoyISO = prev.fechaHoyISO;\nconst hoyDisplay = prev.fechaHoyDisplay;\nlet alta = 0, media = 0, baja = 0;\nconst licitaciones = [];\nconst rows = $input.all();\nfor (const item of rows) {\n  const row = item.json;\n  if (!row || Object.keys(row).length === 0) continue;\n  const tituloKey = Object.keys(row).find(k => k.startsWith('Nombre') || k.startsWith('nombre'));\n  const titulo = (tituloKey ? String(row[tituloKey]) : '') || row['Descripcion'] || row['Descripción'] || '';\n  const numero = row['Número de Proceso'] || row['Numero de Proceso'] || row['número de proceso'] || '';\n  const organismo = row['Unidad Ejecutora'] || row['Organismo'] || row['unidad ejecutora'] || '';\n  const fechaCierreRaw = row['Fecha de Apertura'] || row['Fecha Apertura'] || '';\n  const fechaPubRaw = row['Fecha de Publicación'] || row['Fecha Publicacion'] || row['Fecha de Publicacion'] || '';\n  const montoRaw = row['Monto Estimado'] || row['Presupuesto Oficial'] || null;\n  const monto = montoRaw ? parseFloat(String(montoRaw).replace(/[$.,\\s]/g, '').replace(',', '.')) : null;\n  const tituloNorm = norm(titulo);\n  let rubroMatch = null;\n  for (const [rubro, keywords] of Object.entries(RUBROS)) {\n    if (keywords.some(kw => tituloNorm.includes(norm(kw)))) { rubroMatch = rubro; break; }\n  }\n  if (!rubroMatch) continue;\n  let fechaCierreISO = null, diasAlCierre = null;\n  const matchCierre = String(fechaCierreRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (matchCierre) {\n    const [, d, m, y] = matchCierre;\n    fechaCierreISO = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;\n    diasAlCierre = Math.ceil((new Date(fechaCierreISO + 'T23:59:59') - new Date(hoyISO + 'T00:00:00')) / 86400000);\n  }\n  let fechaPubISO = null;\n  const matchPub = String(fechaPubRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (matchPub) { const [, d, m, y] = matchPub; fechaPubISO = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`; }\n  let score = 50;\n  if (monto !== null && !isNaN(monto)) {\n    if (monto >= 5000000) score += 15; else if (monto >= 1000000) score += 10; else if (monto >= 500000) score += 5; else score += 2;\n  } else { score += 5; }\n  if (diasAlCierre !== null) {\n    if (diasAlCierre <= 0) score += 0; else if (diasAlCierre <= 3) score += 5; else if (diasAlCierre <= 7) score += 10; else if (diasAlCierre <= 15) score += 15; else score += 8;\n  }\n  const prioridad = score >= 70 ? 'alta' : score >= 40 ? 'media' : 'baja';\n  if (prioridad === 'alta') alta++; else if (prioridad === 'media') media++; else baja++;\n  licitaciones.push({ portal: 'nacional', numero: String(numero).trim(), titulo: String(titulo).trim(), organismo: String(organismo).trim(), rubro: rubroMatch, monto_estimado: (monto !== null && !isNaN(monto)) ? monto : null, fecha_publicacion: fechaPubISO, fecha_cierre: fechaCierreISO, url: null, estado: 'nueva', score, prioridad, participacion_previa: false });\n}\nreturn [{ json: { licitaciones, count: licitaciones.length, alta, media, baja, fechaHoy: hoyDisplay } }];",
-      "parameters": {
-        "jsCode": "const RUBROS = {\n  informatica: ['informatic','tecnolog','software','hardware','sistema','licencia','computadora','servidor','internet','digital','electroni','impres','monitor','teclado','mouse','router','switch','firewall','ups'],\n  ferreteria: ['ferreter','herramienta','tornillo','pintura','construcc','materiales','buloneria','soldadura','caño','tubo','cable elect'],\n  indumentaria: ['indumentaria','calzado','ropa','uniforme','vestimenta','textil','tela','prenda','campera','pantalon','camisa','bota'],\n  epp: ['epp','protecci personal','casco','guante','chaleco','barbijo','seguridad laboral','equipo de protecci','antiparras','respirador','mameluco','arnes'],\n  bazar: ['bazar','vajilla','utensilio','cocina','menaje','cristaler','cubierto','olla','bandeja','cafetera','dispenser'],\n  mantenimiento: ['mantenimiento','limpieza','edificio','plomeria','plomería','electricidad','electric','sanitario','aire acondicionado','ascensor','pintura','jardineria','jardinería','fumigacion','fumigación','conservacion','conservación','reparacion','reparación'],\n};\n\nconst norm = (s) => {\n  if (s === null || s === undefined) return '';\n  return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');\n};\n\nconst prev = $('Preparar Fechas').item.json;\nconst hoyISO = prev.fechaHoyISO;\nconst hoyDisplay = prev.fechaHoyDisplay;\n\n// urlMap extraído del HTML de búsqueda en el paso anterior\nconst urlMap = ($('Extraer ViewState').item.json.urlMap) || {};\n\nlet alta = 0, media = 0, baja = 0;\nconst licitaciones = [];\nconst rows = $input.all();\n\nfor (const item of rows) {\n  const row = item.json;\n  if (!row || Object.keys(row).length === 0) continue;\n\n  const tituloKey = Object.keys(row).find(k => k.startsWith('Nombre') || k.startsWith('nombre'));\n  const titulo = (tituloKey ? String(row[tituloKey]) : '') || row['Descripcion'] || row['Descripción'] || '';\n  const numero = row['Número de Proceso'] || row['Numero de Proceso'] || row['número de proceso'] || '';\n  const organismo = row['Unidad Ejecutora'] || row['Organismo'] || row['unidad ejecutora'] || '';\n  const fechaCierreRaw = row['Fecha de Apertura'] || row['Fecha Apertura'] || '';\n  const fechaPubRaw = row['Fecha de Publicación'] || row['Fecha Publicacion'] || row['Fecha de Publicacion'] || '';\n  const montoRaw = row['Monto Estimado'] || row['Presupuesto Oficial'] || null;\n  const monto = montoRaw ? parseFloat(String(montoRaw).replace(/[$.,' ]/g, '').replace(',', '.')) : null;\n\n  const tituloNorm = norm(titulo);\n  let rubroMatch = null;\n  for (const [rubro, keywords] of Object.entries(RUBROS)) {\n    if (keywords.some(kw => tituloNorm.includes(norm(kw)))) {\n      rubroMatch = rubro;\n      break;\n    }\n  }\n  if (!rubroMatch) continue;\n\n  let fechaCierreISO = null;\n  let diasAlCierre = null;\n  const matchCierre = String(fechaCierreRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (matchCierre) {\n    const [, d, mo, y] = matchCierre;\n    fechaCierreISO = `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`;\n    diasAlCierre = Math.ceil((new Date(fechaCierreISO + 'T23:59:59') - new Date(hoyISO + 'T00:00:00')) / 86400000);\n  }\n\n  let fechaPubISO = null;\n  const matchPub = String(fechaPubRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if (matchPub) {\n    const [, d, mo, y] = matchPub;\n    fechaPubISO = `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`;\n  }\n\n  let score = 50;\n  if (monto !== null && !isNaN(monto)) {\n    if (monto >= 5000000) score += 15;\n    else if (monto >= 1000000) score += 10;\n    else if (monto >= 500000) score += 5;\n    else score += 2;\n  } else {\n    score += 5;\n  }\n  if (diasAlCierre !== null) {\n    if (diasAlCierre <= 0) score += 0;\n    else if (diasAlCierre <= 3) score += 5;\n    else if (diasAlCierre <= 7) score += 10;\n    else if (diasAlCierre <= 15) score += 15;\n    else score += 8;\n  }\n\n  const prioridad = score >= 70 ? 'alta' : score >= 40 ? 'media' : 'baja';\n  if (prioridad === 'alta') alta++;\n  else if (prioridad === 'media') media++;\n  else baja++;\n\n  const numeroTrim = String(numero).trim();\n  licitaciones.push({\n    portal: 'nacional',\n    numero: numeroTrim,\n    titulo: String(titulo).trim(),\n    organismo: String(organismo).trim(),\n    rubro: rubroMatch,\n    monto_estimado: (monto !== null && !isNaN(monto)) ? monto : null,\n    fecha_publicacion: fechaPubISO,\n    fecha_cierre: fechaCierreISO,\n    url: urlMap[numeroTrim] || null,\n    estado: 'nueva',\n    score,\n    prioridad,\n    participacion_previa: false,\n  });\n}\n\nreturn [{ json: { licitaciones, count: licitaciones.length, alta, media, baja, fechaHoy: hoyDisplay } }];\n"
-      }
+      "typeVersion": 2,
+      "position": [
+        720,
+        -224
+      ]
     },
     {
+      "parameters": {
+        "jsCode": "const stats=$input.first().json;\nconst todas=stats.licitaciones||[];\nif(!todas.length){\n  return[{json:{licitaciones:[],count:0,count_total:0,count_nuevas:0,count_existentes:0,alta:0,media:0,baja:0,fechaHoy:stats.fechaHoy}}];\n}\nlet existentesSet=new Set();\ntry{\n  const supaUrl='https://azwplnjlkfcszbrfaehv.supabase.co';\n  const supaKey=$env.SUPABASE_SERVICE_KEY||'';\n  if(supaKey){\n    const res=await fetch(supaUrl+'/rest/v1/licitaciones?portal=eq.nacional&select=numero&limit=5000',{\n      headers:{'apikey':supaKey,'Authorization':'Bearer '+supaKey}\n    });\n    if(res.ok){\n      const existentes=await res.json();\n      existentesSet=new Set(existentes.map(e=>e.numero).filter(Boolean));\n    }\n  }\n}catch(e){}\nconst nuevas=todas.filter(l=>!existentesSet.has(l.numero));\nreturn[{json:{\n  licitaciones:nuevas,count:nuevas.length,count_total:todas.length,\n  count_nuevas:nuevas.length,count_existentes:todas.length-nuevas.length,\n  alta:nuevas.filter(l=>l.prioridad==='alta').length,\n  media:nuevas.filter(l=>l.prioridad==='media').length,\n  baja:nuevas.filter(l=>l.prioridad==='baja').length,\n  fechaHoy:stats.fechaHoy\n}}];"
+      },
+      "id": "node-filtrar-nuevas",
+      "name": "Filtrar Nuevas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const stats=$input.first().json;if(!stats.licitaciones?.length)return[];return stats.licitaciones.map(l=>({json:l}));"
+      },
+      "id": "de818457-fb86-4f38-ae13-2368838f358c",
       "name": "Preparar Filas",
       "type": "n8n-nodes-base.code",
-      "notes": "runOnceForAllItems. Explota el array licitaciones[] en items individuales (uno por licitación) para que el nodo Supabase los inserte de a uno. Si count=0, retorna [] y el workflow se detiene.",
-      "code": "const stats = $input.first().json;\nif (!stats.licitaciones?.length) return [];\nreturn stats.licitaciones.map(l => ({ json: l }));"
+      "typeVersion": 2,
+      "position": [
+        1168,
+        -224
+      ]
     },
     {
-      "name": "Create a row",
-      "type": "n8n-nodes-base.supabase",
-      "notes": "Nodo nativo Supabase. Operación: Create a row. Tabla: licitaciones. Auto-Map Input Data to Columns. Credencial: 'Supabase RODOLFO' (service_role). 'Continue on Fail' activado para ignorar errores de clave duplicada (constraint licitaciones_portal_numero_key) sin detener el workflow.",
-      "credential": "Supabase RODOLFO",
-      "table": "licitaciones",
-      "operation": "create",
-      "continueOnFail": true
+      "parameters": {
+        "batchSize": 5,
+        "options": {}
+      },
+      "id": "node-loop",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1392,
+        -224
+      ]
     },
     {
-      "name": "Consolidar",
-      "type": "n8n-nodes-base.code",
-      "notes": "runOnceForAllItems. Colapsa todos los items de salida del nodo Supabase (uno por licitación insertada) en un único item vacío, para que Construir Mensaje y Telegram se ejecuten una sola vez.",
-      "code": "return [{ json: {} }];"
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "R9G73Kw8YIDs4sQa",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "node-execute-sub",
+      "name": "Scraper Sub-workflow",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1616,
+        -224
+      ],
+      "onError": "continueRegularOutput"
     },
     {
+      "parameters": {
+        "jsCode": "const stats=$('Filtrar Nuevas').first().json;\nlet msg;\nif(stats.count_nuevas>0){\n  msg='*Licitaciones ComprAR - '+stats.fechaHoy+'*\\n\\n*'+stats.count_nuevas+' nuevas importadas*\\nAlta: '+stats.alta+' / Media: '+stats.media+' / Baja: '+stats.baja+'\\n_('+stats.count_existentes+' existentes descartadas)_\\n\\n_Revisalas en el sistema_';\n}else{\n  msg='*Licitaciones ComprAR - '+stats.fechaHoy+'*\\n\\nSin licitaciones nuevas hoy.\\n_('+stats.count_total+' ya estaban importadas)_';\n}\nreturn[{json:{message:msg}}];"
+      },
+      "id": "node-mensaje",
       "name": "Construir Mensaje",
       "type": "n8n-nodes-base.code",
-      "notes": "Recupera stats de 'Mapear y Calcular Score' y formatea el mensaje Telegram con emojis, conteo por prioridad y lista de títulos truncados.",
-      "code": "const stats = $('Mapear y Calcular Score').item.json;\nconst { count, alta, media, baja, fechaHoy, licitaciones } = stats;\nif (!count || count === 0) {\n  return [{ json: { text: `📋 *ComprAR ${fechaHoy}*\\n\\nSin licitaciones relevantes hoy.` }}];\n}\nlet msg = `📋 *ComprAR ${fechaHoy}* — ${count} licitacion${count !== 1 ? 'es' : ''} nueva${count !== 1 ? 's' : ''}\\n`;\nmsg += `🟢 Alta: ${alta} · 🟡 Media: ${media} · 🔴 Baja: ${baja}\\n\\n`;\nconst top = licitaciones.filter(l => l.prioridad === 'alta').slice(0, 5);\nif (top.length) {\n  msg += `*Prioritarias:*\\n`;\n  for (const l of top) {\n    const titulo = l.titulo.length > 60 ? l.titulo.slice(0, 57) + '...' : l.titulo;\n    msg += `• ${titulo} (${l.organismo || 'N/A'})\\n`;\n  }\n}\nmsg += `\\n🔗 [Ver en ComprAR](https://comprar.gob.ar)`;\nreturn [{ json: { text: msg } }];"
+      "typeVersion": 2,
+      "position": [
+        1840,
+        -224
+      ]
     },
     {
-      "name": "Notificación Telegram",
+      "parameters": {
+        "chatId": "=177682377",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "node-telegram",
+      "name": "Notificacion Telegram",
       "type": "n8n-nodes-base.telegram",
-      "notes": "Envía el mensaje a RodolfiBot. Credencial: 'RodolfiBot' (token en credential store, no en el workflow). Chat ID: 177682377 (usuario Rodolfo). Parse mode: Markdown.",
-      "credential": "RodolfiBot",
-      "chatId": "177682377",
-      "parseMode": "Markdown"
+      "typeVersion": 1.2,
+      "position": [
+        2064,
+        -224
+      ],
+      "webhookId": "9849ac3e-5a8b-43af-b436-6587d92d6032",
+      "credentials": {
+        "telegramApi": {
+          "id": "Q57U4xrqkMkjOLSL",
+          "name": "RodolfiBOT"
+        }
+      }
     }
   ],
   "connections": {
-    "Cron Diario": "Preparar Fechas",
-    "Preparar Fechas": "GET ComprAR",
-    "GET ComprAR": "Extraer ViewState",
-    "Extraer ViewState": "Descargar Excel",
-    "Descargar Excel": "Parsear Excel",
-    "Parsear Excel": "Mapear y Calcular Score",
-    "Mapear y Calcular Score": "Preparar Filas",
-    "Preparar Filas": "Create a row",
-    "Create a row": "Consolidar",
-    "Consolidar": "Construir Mensaje",
-    "Construir Mensaje": "Notificación Telegram"
+    "Cron Diario": {
+      "main": [
+        [
+          {
+            "node": "Preparar Fechas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Fechas": {
+      "main": [
+        [
+          {
+            "node": "Descargar Excel ComprAR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descargar Excel ComprAR": {
+      "main": [
+        [
+          {
+            "node": "Parsear Excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Excel": {
+      "main": [
+        [
+          {
+            "node": "Mapear y Calcular Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapear y Calcular Score": {
+      "main": [
+        [
+          {
+            "node": "Filtrar Nuevas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar Nuevas": {
+      "main": [
+        [
+          {
+            "node": "Preparar Filas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Filas": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Construir Mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Scraper Sub-workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scraper Sub-workflow": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir Mensaje": {
+      "main": [
+        [
+          {
+            "node": "Notificacion Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "cron": "0 11 * * 1-5",
-  "schedule_note": "Lunes a viernes 8:00am Buenos Aires (UTC-3 = 11:00 UTC)",
-  "score_logic": {
-    "rubro_match": 50,
-    "participacion_previa": "0 en MVP (cruzar con tabla organismos_previos en Fase 2)",
-    "monto": ">=5M: +15pts | >=1M: +10pts | >=500K: +5pts | <500K: +2pts | sin dato: +5pts",
-    "dias_al_cierre": "<=3: +5pts | <=7: +10pts | <=15: +15pts | >15: +8pts | vencida: 0pts",
-    "prioridad": "alta: 70-100 | media: 40-69 | baja: 0-39"
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Argentina/Buenos_Aires",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "binaryMode": "separate"
   },
-  "rubros_activos": {
-    "informatica": [
-      "informatic",
-      "tecnolog",
-      "software",
-      "hardware",
-      "sistema",
-      "licencia",
-      "computadora",
-      "servidor",
-      "internet",
-      "digital",
-      "electroni",
-      "impres",
-      "monitor",
-      "teclado",
-      "mouse",
-      "router",
-      "switch",
-      "firewall",
-      "ups"
+  "staticData": {
+    "node:Cron Diario": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "8b988451-bd0a-4707-ae0c-9d594d40aa52",
+  "activeVersionId": "925dc534-8204-4af6-a8df-4a01aec63d6b",
+  "versionCounter": 146,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "shared": [
+    {
+      "updatedAt": "2026-06-19T03:34:52.446Z",
+      "createdAt": "2026-06-19T03:34:52.446Z",
+      "role": "workflow:owner",
+      "workflowId": "srvQpSkNQMS80ZbA",
+      "projectId": "EJti8ht5iuFOnmZD",
+      "project": {
+        "updatedAt": "2026-04-26T02:26:10.629Z",
+        "createdAt": "2026-04-26T02:24:15.235Z",
+        "id": "EJti8ht5iuFOnmZD",
+        "name": "Ernesto Beto <photo@betoviedo.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "2a7a0007-c4f7-435d-85b6-892389779c25"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-06-22T17:36:41.951Z",
+    "createdAt": "2026-06-22T17:36:41.951Z",
+    "versionId": "925dc534-8204-4af6-a8df-4a01aec63d6b",
+    "workflowId": "srvQpSkNQMS80ZbA",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "0 11 * * 1-5"
+              }
+            ]
+          }
+        },
+        "id": "node-schedule",
+        "name": "Cron Diario",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -176,
+          -224
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const now=new Date();\nconst pad=(n)=>n.toString().padStart(2,'0');\nconst fmtDDMMYYYY=(d)=>`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;\nconst fmtISO=(d)=>d.toISOString().split('T')[0];\nlet rubros=[];\ntry{\n  const supaUrl='https://azwplnjlkfcszbrfaehv.supabase.co';\n  const supaKey=$env.SUPABASE_ANON_KEY||'';\n  if(supaKey){\n    const res=await fetch(supaUrl+'/rest/v1/rubros?activo=eq.true&select=nombre,keywords&order=orden.asc',{headers:{apikey:supaKey,Authorization:'Bearer '+supaKey}});\n    if(res.ok)rubros=await res.json();\n  }\n}catch(e){rubros=[];}\nreturn[{json:{fechaHoyISO:fmtISO(now),fechaHoyDisplay:fmtDDMMYYYY(now),rubros}}];"
+        },
+        "id": "node-fechas",
+        "name": "Preparar Fechas",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          48,
+          -224
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const { spawn } = require('child_process');\n\nconst SCRAPER = `(async () => {\n  const puppeteer = require('/usr/local/lib/node_modules/puppeteer');\n  let browser;\n  try {\n    browser = await puppeteer.launch({\n      executablePath: '/usr/bin/chromium-browser',\n      args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--single-process','--no-zygote'],\n      headless: true, timeout: 60000,\n    });\n    const page = await browser.newPage();\n    page.setDefaultNavigationTimeout(30000);\n    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');\n    await page.goto('https://comprar.gob.ar/Compras.aspx?qs=W1HXHGHtH10=', { waitUntil: 'domcontentloaded', timeout: 45000 });\n    await new Promise(r => setTimeout(r, 4000));\n    const pageInfo = await page.evaluate(() => {\n      const btn = document.getElementById('ctl00_CPH1_btnDescargarReporteExcelAperturaProxima');\n      if (!btn) return { error: 'Boton no encontrado' };\n      const vs = document.getElementById('__VIEWSTATE');\n      const vsGen = document.getElementById('__VIEWSTATEGENERATOR');\n      const evVal = document.getElementById('__EVENTVALIDATION');\n      const form = document.querySelector('form');\n      const hrefAttr = btn.getAttribute('href') || '';\n      const onclickAttr = btn.getAttribute('onclick') || '';\n      return { tagName: btn.tagName, href: btn.href, hrefAttr, onclickAttr, viewState: vs ? vs.value : null, vsGen: vsGen ? vsGen.value : null, eventValidation: evVal ? evVal.value : null, formAction: form ? form.action : window.location.href };\n    });\n    if (pageInfo.error) { process.stdout.write(JSON.stringify({ __error: pageInfo.error })); return; }\n    const hrefStr = pageInfo.hrefAttr || '';\n    const onclickStr = pageInfo.onclickAttr || '';\n    const doPostBackSrc = hrefStr + onclickStr;\n    const dpbMatch = doPostBackSrc.match(/__doPostBack\\\\('([^']+)'/);\n    const isDoPostBack = dpbMatch || doPostBackSrc.includes('__doPostBack');\n    if (!isDoPostBack && pageInfo.href && !pageInfo.href.startsWith('javascript') && pageInfo.href !== '#') {\n      const r = await page.evaluate(async (href, toB64Src) => {\n        const toBase64 = new Function('bytes', toB64Src);\n        const res = await fetch(href, { credentials: 'include' });\n        if (!res.ok) return { ok: false, err: 'HTTP ' + res.status };\n        const ct = res.headers.get('content-type') || '';\n        const buf = new Uint8Array(await res.arrayBuffer());\n        return { ok: true, data: toBase64(buf), mimeType: ct.split(';')[0].trim() || 'application/vnd.ms-excel' };\n      }, pageInfo.href, 'let bin=\"\";const ch=8192;for(let i=0;i<bytes.length;i+=ch){bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+ch));}return btoa(bin);');\n      if (r && r.ok) { process.stdout.write(JSON.stringify({ data: r.data, mimeType: r.mimeType, fileName: 'reporte.xlsx' })); return; }\n    }\n    const eventTarget = dpbMatch ? dpbMatch[1] : 'ctl00$CPH1$btnDescargarReporteExcelAperturaProxima';\n    const r2 = await page.evaluate(async (formAction, evtTarget, viewState, vsGen, evVal, toB64Src) => {\n      const toBase64 = new Function('bytes', toB64Src);\n      const params = new URLSearchParams();\n      params.set('__EVENTTARGET', evtTarget);\n      params.set('__EVENTARGUMENT', '');\n      if (viewState) params.set('__VIEWSTATE', viewState);\n      if (vsGen) params.set('__VIEWSTATEGENERATOR', vsGen);\n      if (evVal) params.set('__EVENTVALIDATION', evVal);\n      const res = await fetch(formAction, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, credentials: 'include', body: params.toString() });\n      if (!res.ok) return { ok: false, err: 'POST HTTP ' + res.status };\n      const ct = res.headers.get('content-type') || '';\n      const cd = res.headers.get('content-disposition') || '';\n      if (!ct.includes('excel') && !ct.includes('spreadsheet') && !ct.includes('octet-stream') && !cd.includes('.xls')) {\n        return { ok: false, err: 'content-type inesperado: ' + ct + ' | cd: ' + cd };\n      }\n      const bytes = new Uint8Array(await res.arrayBuffer());\n      return { ok: true, data: toBase64(bytes), mimeType: ct.split(';')[0].trim() || 'application/vnd.ms-excel' };\n    }, pageInfo.formAction, eventTarget, pageInfo.viewState, pageInfo.vsGen, pageInfo.eventValidation, 'let bin=\"\";const ch=8192;for(let i=0;i<bytes.length;i+=ch){bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+ch));}return btoa(bin);');\n    if (r2 && r2.ok) { process.stdout.write(JSON.stringify({ data: r2.data, mimeType: r2.mimeType, fileName: 'reporte.xlsx' })); return; }\n    process.stdout.write(JSON.stringify({ __error: 'Descarga fallida. r2: ' + JSON.stringify(r2) }));\n  } catch(e) {\n    process.stdout.write(JSON.stringify({ __error: String(e) }));\n  } finally {\n    if (browser) await browser.close().catch(() => {});\n  }\n})();`;\n\nconst stdout = await new Promise((resolve, reject) => {\n  let out = '';\n  const proc = spawn('node', ['-e', SCRAPER], {\n    env: { PUPPETEER_EXECUTABLE_PATH: '/usr/bin/chromium-browser', PUPPETEER_SKIP_DOWNLOAD: 'true', NODE_PATH: '/usr/local/lib/node_modules', HOME: '/home/node', PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' }\n  });\n  proc.stdout.on('data', buf => { out += buf.toString(); });\n  proc.stderr.on('data', () => {});\n  const timer = setTimeout(() => { try{proc.kill();}catch(_){} reject(new Error('Timeout 120s')); }, 120000);\n  proc.on('close', () => { clearTimeout(timer); resolve(out); });\n  proc.on('error', err => { clearTimeout(timer); reject(err); });\n});\n\nconst result = JSON.parse(stdout);\nif (result.__error) return [{ json: { __error: result.__error } }];\nreturn [{ json: {}, binary: { data: { data: result.data, mimeType: result.mimeType, fileName: result.fileName } } }];"
+        },
+        "id": "node-descargar-excel",
+        "name": "Descargar Excel ComprAR",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          272,
+          -224
+        ],
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "options": {
+            "headerRow": true,
+            "sheetName": ""
+          }
+        },
+        "id": "node-spreadsheet",
+        "name": "Parsear Excel",
+        "type": "n8n-nodes-base.spreadsheetFile",
+        "typeVersion": 1,
+        "position": [
+          496,
+          -224
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const prev=$('Preparar Fechas').item.json;\nconst rubrosDB=Array.isArray(prev.rubros)&&prev.rubros.length>0?prev.rubros:null;\nconst RUBROS={};\nif(rubrosDB){for(const r of rubrosDB){if(r.nombre&&Array.isArray(r.keywords))RUBROS[r.nombre]=r.keywords;}}\nif(Object.keys(RUBROS).length===0){Object.assign(RUBROS,{informatica:['informatic','tecnolog','software','hardware','sistema','licencia','computadora','servidor','internet','digital','electroni','impres','monitor','teclado','mouse','router','switch','firewall','ups'],ferreteria:['ferreter','herramienta','tornillo','pintura','construcc','materiales','buloneria','soldadura','tubo','cable elect'],indumentaria:['indumentaria','calzado','ropa','uniforme','vestimenta','textil','tela','prenda','campera','pantalon','camisa','bota'],epp:['epp','protecci personal','casco','guante','chaleco','barbijo','seguridad laboral','antiparras','respirador','mameluco','arnes'],bazar:['bazar','vajilla','utensilio','cocina','menaje','cristaler','cubierto','olla','bandeja','cafetera','dispenser'],mantenimiento:['mantenimiento','limpieza','edificio','plomeria','electricidad','electric','sanitario','aire acondicionado','ascensor','pintura','jardineria','fumigacion','conservacion','reparacion']});}\nconst decodeHtml=(s)=>{if(!s)return'';const parts=String(s).split('&#');const out=[parts[0]];for(let i=1;i<parts.length;i++){const semi=parts[i].indexOf(';');if(semi<0){out.push('&#',parts[i]);continue;}const num=parseInt(parts[i].slice(0,semi),10);out.push(isNaN(num)?'&#'+parts[i]:String.fromCharCode(num)+parts[i].slice(semi+1));}return out.join('').replace(/&amp;/g,'&').replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'\"');};\nconst norm=(s)=>{if(s===null||s===undefined)return'';return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');};\nconst _normKey=(k)=>k.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');\nconst getCol=(row,keys)=>{for(const k of keys){if(row[k]!==undefined&&row[k]!==null&&row[k]!=='')return row[k];}return ''};\nconst hoyISO=prev.fechaHoyISO;const hoyDisplay=prev.fechaHoyDisplay;\nlet alta=0,media=0,baja=0;\nconst licitaciones=[];\nfor(const item of $input.all()){\n  const row=item.json;\n  if(!row||Object.keys(row).length===0)continue;\n  if(row.__noResults||row.__error)continue;\n  const tituloKey=Object.keys(row).find(k=>k.startsWith('Nombre')||k.startsWith('nombre'));\n  const titulo=decodeHtml((tituloKey?String(row[tituloKey]):'')||'');\n  const numeroKey=Object.keys(row).find(k=>{const kn=_normKey(k);return(kn.includes('numero')||kn.includes('nro'))&&(kn.includes('proceso')||kn.includes('expediente')||kn.includes('proc'));});\n  const numero=numeroKey?String(row[numeroKey]).trim():'';\n  if(!numero||numero.length<5||!numero.includes('/'))continue;\n  const organismo=decodeHtml(getCol(row,['Unidad Ejecutora','Unidad ejecutora','unidad ejecutora','Organismo','organismo','Servicio Administrativo Financiero']));\n  const fechaCierreRaw=getCol(row,['Fecha de Apertura','Fecha de apertura','Fecha apertura','Fecha Apertura']);\n  const fechaPubRaw=getCol(row,['Fecha de Publicacion','Fecha Publicacion','Fecha publicacion']);\n  const montoRaw=getCol(row,['Monto Estimado','Presupuesto Oficial','Monto estimado'])||null;\n  const monto=montoRaw?parseFloat(String(montoRaw).replace(/[$.,\\s]/g,'').replace(',','.')):null;\n  const tituloNorm=norm(titulo);\n  let rubroMatch=null;\n  for(const[rubro,keywords]of Object.entries(RUBROS)){if(keywords.some(kw=>tituloNorm.includes(norm(kw)))){rubroMatch=rubro;break;}}\n  let fechaCierreISO=null,diasAlCierre=null;\n  const mc=String(fechaCierreRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if(mc){const[,d,mo,y]=mc;fechaCierreISO=y+'-'+mo.padStart(2,'0')+'-'+d.padStart(2,'0');diasAlCierre=Math.ceil((new Date(fechaCierreISO+'T23:59:59')-new Date(hoyISO+'T00:00:00'))/86400000);}\n  let fechaPubISO=null;\n  const mp=String(fechaPubRaw).match(/(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/);\n  if(mp){const[,d,mo,y]=mp;fechaPubISO=y+'-'+mo.padStart(2,'0')+'-'+d.padStart(2,'0');}\n  if(fechaCierreISO&&diasAlCierre!==null&&diasAlCierre<0)continue;\n  let score=rubroMatch?50:0;\n  if(monto!==null&&!isNaN(monto)){if(monto>=5000000)score+=15;else if(monto>=1000000)score+=10;else if(monto>=500000)score+=5;else score+=2;}else score+=5;\n  if(diasAlCierre!==null){if(diasAlCierre<=0)score+=0;else if(diasAlCierre<=3)score+=5;else if(diasAlCierre<=7)score+=10;else if(diasAlCierre<=15)score+=15;else score+=8;}\n  const prioridad=score>=70?'alta':score>=40?'media':'baja';\n  if(prioridad==='alta')alta++;else if(prioridad==='media')media++;else baja++;\n  licitaciones.push({portal:'nacional',numero,titulo:titulo.trim(),organismo:String(organismo).trim(),rubro:rubroMatch??'sin_clasificar',monto_estimado:(monto!==null&&!isNaN(monto))?monto:null,fecha_publicacion:fechaPubISO,fecha_cierre:fechaCierreISO,url:null,estado:'nueva',score,prioridad,participacion_previa:false});\n}\nreturn[{json:{licitaciones,count:licitaciones.length,alta,media,baja,fechaHoy:hoyDisplay}}];"
+        },
+        "id": "node-score",
+        "name": "Mapear y Calcular Score",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          720,
+          -224
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const stats=$input.first().json;\nconst todas=stats.licitaciones||[];\nif(!todas.length){\n  return[{json:{licitaciones:[],count:0,count_total:0,count_nuevas:0,count_existentes:0,alta:0,media:0,baja:0,fechaHoy:stats.fechaHoy}}];\n}\nlet existentesSet=new Set();\ntry{\n  const supaUrl='https://azwplnjlkfcszbrfaehv.supabase.co';\n  const supaKey=$env.SUPABASE_SERVICE_KEY||'';\n  if(supaKey){\n    const res=await fetch(supaUrl+'/rest/v1/licitaciones?portal=eq.nacional&select=numero&limit=5000',{\n      headers:{'apikey':supaKey,'Authorization':'Bearer '+supaKey}\n    });\n    if(res.ok){\n      const existentes=await res.json();\n      existentesSet=new Set(existentes.map(e=>e.numero).filter(Boolean));\n    }\n  }\n}catch(e){}\nconst nuevas=todas.filter(l=>!existentesSet.has(l.numero));\nreturn[{json:{\n  licitaciones:nuevas,count:nuevas.length,count_total:todas.length,\n  count_nuevas:nuevas.length,count_existentes:todas.length-nuevas.length,\n  alta:nuevas.filter(l=>l.prioridad==='alta').length,\n  media:nuevas.filter(l=>l.prioridad==='media').length,\n  baja:nuevas.filter(l=>l.prioridad==='baja').length,\n  fechaHoy:stats.fechaHoy\n}}];"
+        },
+        "id": "node-filtrar-nuevas",
+        "name": "Filtrar Nuevas",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          944,
+          -224
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const stats=$input.first().json;if(!stats.licitaciones?.length)return[];return stats.licitaciones.map(l=>({json:l}));"
+        },
+        "id": "de818457-fb86-4f38-ae13-2368838f358c",
+        "name": "Preparar Filas",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1168,
+          -224
+        ]
+      },
+      {
+        "parameters": {
+          "batchSize": 5,
+          "options": {}
+        },
+        "id": "node-loop",
+        "name": "Loop Over Items",
+        "type": "n8n-nodes-base.splitInBatches",
+        "typeVersion": 3,
+        "position": [
+          1392,
+          -224
+        ]
+      },
+      {
+        "parameters": {
+          "source": "database",
+          "workflowId": {
+            "__rl": true,
+            "value": "R9G73Kw8YIDs4sQa",
+            "mode": "id"
+          },
+          "options": {}
+        },
+        "id": "node-execute-sub",
+        "name": "Scraper Sub-workflow",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          1616,
+          -224
+        ],
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "const stats=$('Filtrar Nuevas').first().json;\nlet msg;\nif(stats.count_nuevas>0){\n  msg='*Licitaciones ComprAR - '+stats.fechaHoy+'*\\n\\n*'+stats.count_nuevas+' nuevas importadas*\\nAlta: '+stats.alta+' / Media: '+stats.media+' / Baja: '+stats.baja+'\\n_('+stats.count_existentes+' existentes descartadas)_\\n\\n_Revisalas en el sistema_';\n}else{\n  msg='*Licitaciones ComprAR - '+stats.fechaHoy+'*\\n\\nSin licitaciones nuevas hoy.\\n_('+stats.count_total+' ya estaban importadas)_';\n}\nreturn[{json:{message:msg}}];"
+        },
+        "id": "node-mensaje",
+        "name": "Construir Mensaje",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1840,
+          -224
+        ]
+      },
+      {
+        "parameters": {
+          "chatId": "=177682377",
+          "text": "={{ $json.message }}",
+          "additionalFields": {
+            "parse_mode": "Markdown"
+          }
+        },
+        "id": "node-telegram",
+        "name": "Notificacion Telegram",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          2064,
+          -224
+        ],
+        "webhookId": "9849ac3e-5a8b-43af-b436-6587d92d6032",
+        "credentials": {
+          "telegramApi": {
+            "id": "Q57U4xrqkMkjOLSL",
+            "name": "RodolfiBOT"
+          }
+        }
+      }
     ],
-    "ferreteria": [
-      "ferreter",
-      "herramienta",
-      "tornillo",
-      "pintura",
-      "construcc",
-      "materiales",
-      "buloneria",
-      "soldadura",
-      "caño",
-      "tubo",
-      "cable elect"
-    ],
-    "indumentaria": [
-      "indumentaria",
-      "calzado",
-      "ropa",
-      "uniforme",
-      "vestimenta",
-      "textil",
-      "tela",
-      "prenda",
-      "campera",
-      "pantalon",
-      "camisa",
-      "bota"
-    ],
-    "epp": [
-      "epp",
-      "protecci personal",
-      "casco",
-      "guante",
-      "chaleco",
-      "barbijo",
-      "seguridad laboral",
-      "equipo de protecci",
-      "antiparras",
-      "respirador",
-      "mameluco",
-      "arnes"
-    ],
-    "bazar": [
-      "bazar",
-      "vajilla",
-      "utensilio",
-      "cocina",
-      "menaje",
-      "cristaler",
-      "cubierto",
-      "olla",
-      "bandeja",
-      "cafetera",
-      "dispenser"
-    ],
-    "mantenimiento": [
-      "mantenimiento",
-      "limpieza",
-      "edificio",
-      "plomeria",
-      "plomería",
-      "electricidad",
-      "electric",
-      "sanitario",
-      "aire acondicionado",
-      "ascensor",
-      "pintura",
-      "jardineria",
-      "jardinería",
-      "fumigacion",
-      "fumigación",
-      "conservacion",
-      "conservación",
-      "reparacion",
-      "reparación"
+    "connections": {
+      "Cron Diario": {
+        "main": [
+          [
+            {
+              "node": "Preparar Fechas",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Preparar Fechas": {
+        "main": [
+          [
+            {
+              "node": "Descargar Excel ComprAR",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Descargar Excel ComprAR": {
+        "main": [
+          [
+            {
+              "node": "Parsear Excel",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parsear Excel": {
+        "main": [
+          [
+            {
+              "node": "Mapear y Calcular Score",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mapear y Calcular Score": {
+        "main": [
+          [
+            {
+              "node": "Filtrar Nuevas",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Filtrar Nuevas": {
+        "main": [
+          [
+            {
+              "node": "Preparar Filas",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Preparar Filas": {
+        "main": [
+          [
+            {
+              "node": "Loop Over Items",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Loop Over Items": {
+        "main": [
+          [
+            {
+              "node": "Construir Mensaje",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Scraper Sub-workflow",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Scraper Sub-workflow": {
+        "main": [
+          [
+            {
+              "node": "Loop Over Items",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Construir Mensaje": {
+        "main": [
+          [
+            {
+              "node": "Notificacion Telegram",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Ernesto Beto",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-06-22T17:36:42.123Z",
+        "id": 286,
+        "workflowId": "srvQpSkNQMS80ZbA",
+        "versionId": "925dc534-8204-4af6-a8df-4a01aec63d6b",
+        "event": "activated",
+        "userId": "2a7a0007-c4f7-435d-85b6-892389779c25"
+      },
+      {
+        "createdAt": "2026-06-22T17:36:42.057Z",
+        "id": 285,
+        "workflowId": "srvQpSkNQMS80ZbA",
+        "versionId": "925dc534-8204-4af6-a8df-4a01aec63d6b",
+        "event": "deactivated",
+        "userId": "2a7a0007-c4f7-435d-85b6-892389779c25"
+      }
     ]
-  },
-  "supabase": {
-    "credential": "Supabase RODOLFO",
-    "table": "licitaciones",
-    "unique_constraint": "licitaciones_portal_numero_key (portal, numero)",
-    "note": "El nodo usa service_role via credencial n8n — la key nunca está en el JSON del workflow"
-  },
-  "telegram": {
-    "credential": "RodolfiBot",
-    "bot": "RodolfiBot",
-    "chat_id": "177682377",
-    "note": "El token está en la credencial n8n, no en el workflow"
   }
 }

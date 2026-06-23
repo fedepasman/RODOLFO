@@ -90,6 +90,20 @@ create policy "configuracion_update_authenticated"
   with check (true);
 
 -- ----------------------------------------------------------------------------
+-- rubros: lectura pública (keywords no son datos sensibles); escritura solo autenticados.
+alter table public.rubros enable row level security;
+
+create policy "rubros_select_anon"
+  on public.rubros for select
+  to anon, authenticated
+  using (true);
+
+create policy "rubros_write_authenticated"
+  on public.rubros for all
+  to authenticated
+  using (true)
+  with check (true);
+
 -- historial_estado: lectura para autenticados; inserción de su propio registro.
 -- ----------------------------------------------------------------------------
 create policy "historial_select_authenticated"

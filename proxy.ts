@@ -54,6 +54,14 @@ export async function proxy(request: NextRequest) {
   // getUser() valida el JWT contra el servidor de Supabase (a diferencia de
   // getSession(), que confía en la cookie). No poner código entre createServerClient
   // y getUser() para evitar bugs sutiles de sesión.
+  // Server actions (POST + header "next-action") no pueden recibir un redirect 302
+  // porque el cliente espera una respuesta RSC — si el proxy redirige, el cliente
+  // tira "An unexpected response". Los server actions autentican con requireUser()
+  // internamente, así que el proxy los deja pasar sin verificar sesión.
+  if (request.method === "POST" && request.headers.get("next-action")) {
+    return response;
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();

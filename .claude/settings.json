@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /tmp/put_main_result2.json -w '%{http_code}' -X PUT https://n8n.betoviedo.com/api/v1/workflows/srvQpSkNQMS80ZbA -H 'X-N8N-API-KEY: __CMDSUB_OUTPUT__' -H 'Content-Type: application/json' --data @/tmp/main_wf_clean.json)",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -X GET https://n8n.betoviedo.com/api/v1/executions/750?includeData=true -H 'X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyYTdhMDAwNy1jNGY3LTQzNWQtODViNi04OTIzODk3NzljMjUiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzgwNDMxMTk5LCJleHAiOjE3ODgxNDg4MDB9.NSkDbogIwNdE3228OofnbBHZjyCnXxbVdiC9ral74AM')",
+      "Bash(curl -s -X GET https://n8n.betoviedo.com/api/v1/workflows/srvQpSkNQMS80ZbA -H 'X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyYTdhMDAwNy1jNGY3LTQzNWQtODViNi04OTIzODk3NzljMjUiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzgwNDMxMTk5LCJleHAiOjE3ODgxNDg4MDB9.NSkDbogIwNdE3228OofnbBHZjyCnXxbVdiC9ral74AM')",
+      "Bash(python3 /tmp/fix_connections.py)",
+      "Bash(curl -s -X GET 'https://n8n.betoviedo.com/api/v1/executions?workflowId=R9G73Kw8YIDs4sQa&limit=3&includeData=true' -H 'X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyYTdhMDAwNy1jNGY3LTQzNWQtODViNi04OTIzODk3NzljMjUiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzgwNDMxMTk5LCJleHAiOjE3ODgxNDg4MDB9.NSkDbogIwNdE3228OofnbBHZjyCnXxbVdiC9ral74AM')",
+      "Bash(curl -s -X GET https://n8n.betoviedo.com/api/v1/workflows/R9G73Kw8YIDs4sQa -H 'X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyYTdhMDAwNy1jNGY3LTQzNWQtODViNi04OTIzODk3NzljMjUiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzgwNDMxMTk5LCJleHAiOjE3ODgxNDg4MDB9.NSkDbogIwNdE3228OofnbBHZjyCnXxbVdiC9ral74AM')",
+      "Bash(curl -s -o /tmp/var_result.json -w '%{http_code}' -X POST https://n8n.betoviedo.com/api/v1/variables -H 'X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyYTdhMDAwNy1jNGY3LTQzNWQtODViNi04OTIzODk3NzljMjUiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzgwNDMxMTk5LCJleHAiOjE3ODgxNDg4MDB9.NSkDbogIwNdE3228OofnbBHZjyCnXxbVdiC9ral74AM' -H 'Content-Type: application/json' -d '{\"key\":\"SUPABASE_SERVICE_KEY\",\"value\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF6d3Bsbmpsa2Zjc3picmZhZWh2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTgyODMwMiwiZXhwIjoyMDk3NDA0MzAyfQ.pqytRJKDJoDvHuYr5R40b_ifbL8saDfB8MVsM5VTnOc\"}')",
+      "Bash(python3 /tmp/patch_subwf2.py)",
+      "Bash(curl -s -o /tmp/subwf_put2.json -w '%{http_code}' -X PUT https://n8n.betoviedo.com/api/v1/workflows/R9G73Kw8YIDs4sQa -H 'X-N8N-API-KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyYTdhMDAwNy1jNGY3LTQzNWQtODViNi04OTIzODk3NzljMjUiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzgwNDMxMTk5LCJleHAiOjE3ODgxNDg4MDB9.NSkDbogIwNdE3228OofnbBHZjyCnXxbVdiC9ral74AM' -H 'Content-Type: application/json' -d @/tmp/subwf_fixed2.json)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d, indent=2, ensure_ascii=False\\)\\)\")",
+      "Bash(python3 -c \"import json; d=json.load\\(open\\('/Users/fedepasman/Documents/DESARROLLO/RODOLFO/n8n/workflows/comprar-importacion-diaria.json'\\)\\); print\\(d['name'], '|', d['updatedAt']\\)\")",
+      "Bash(echo \"Main: $\\(python3 -c \"import json; d=json.load\\(open\\('/Users/fedepasman/Documents/DESARROLLO/RODOLFO/n8n/workflows/comprar-importacion-diaria.json'\\)\\); print\\(d['name'], '|', d['updatedAt']\\)\"\\)\")",
+      "Bash(python3 -c \"import json; d=json.load\\(open\\('/Users/fedepasman/Documents/DESARROLLO/RODOLFO/n8n/workflows/comprar-scraper-subworkflow.json'\\)\\); print\\(d['name'], '|', d['updatedAt']\\)\")",
+      "Bash(echo \"Sub: $\\(python3 -c \"import json; d=json.load\\(open\\('/Users/fedepasman/Documents/DESARROLLO/RODOLFO/n8n/workflows/comprar-scraper-subworkflow.json'\\)\\); print\\(d['name'], '|', d['updatedAt']\\)\"\\)\")",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"console.log\\(require\\('/Users/fedepasman/Documents/DESARROLLO/RODOLFO/node_modules/next/package.json'\\).version\\)\")",
+      "Bash(mkdir -p /Users/fedepasman/Documents/DESARROLLO/RODOLFO/app/\\\\\\(app\\\\\\)/calendario/\\\\[fecha\\\\])"
+    ],
+    "additionalDirectories": [
+      "/Users/fedepasman/Documents/DESARROLLO/RODOLFO/app/(app)/calendario"
+    ]
+  }
+}

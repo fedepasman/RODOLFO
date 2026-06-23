@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Bookmark, BookmarkCheck } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -33,6 +33,8 @@ import {
   type EstadoLicitacion,
   type Prioridad,
 } from "@/types/licitaciones";
+import { AgregarSeguimientoBtn } from "@/components/licitaciones/agregar-seguimiento-btn";
+import { MarcarRevisadaBtn } from "@/components/licitaciones/marcar-revisada-btn";
 
 interface Props {
   licitaciones: Licitacion[];
@@ -47,6 +49,7 @@ export function LicitacionesTable({ licitaciones, withEstadoFilter = true }: Pro
   const [prioridadFiltro, setPrioridadFiltro] = useState(TODOS);
   const [rubroFiltro, setRubroFiltro] = useState(TODOS);
   const [estadoFiltro, setEstadoFiltro] = useState(TODOS);
+  const [revisadaFiltro, setRevisadaFiltro] = useState<"todos" | "revisadas" | "no_revisadas">("todos");
 
   const filtradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -63,15 +66,21 @@ export function LicitacionesTable({ licitaciones, withEstadoFilter = true }: Pro
       .filter((l) => prioridadFiltro === TODOS || l.prioridad === prioridadFiltro)
       .filter((l) => rubroFiltro === TODOS || l.rubro === rubroFiltro)
       .filter((l) => estadoFiltro === TODOS || l.estado === estadoFiltro)
+      .filter((l) => {
+        if (revisadaFiltro === "revisadas") return l.revisada === true;
+        if (revisadaFiltro === "no_revisadas") return l.revisada === false;
+        return true;
+      })
       .sort((a, b) => b.score - a.score);
-  }, [licitaciones, busqueda, portalFiltro, prioridadFiltro, rubroFiltro, estadoFiltro]);
+  }, [licitaciones, busqueda, portalFiltro, prioridadFiltro, rubroFiltro, estadoFiltro, revisadaFiltro]);
 
   const hayFiltros =
     busqueda !== "" ||
     portalFiltro !== TODOS ||
     prioridadFiltro !== TODOS ||
     rubroFiltro !== TODOS ||
-    (withEstadoFilter && estadoFiltro !== TODOS);
+    (withEstadoFilter && estadoFiltro !== TODOS) ||
+    revisadaFiltro !== "todos";
 
   function limpiarFiltros() {
     setBusqueda("");
@@ -79,6 +88,7 @@ export function LicitacionesTable({ licitaciones, withEstadoFilter = true }: Pro
     setPrioridadFiltro(TODOS);
     setRubroFiltro(TODOS);
     if (withEstadoFilter) setEstadoFiltro(TODOS);
+    setRevisadaFiltro("todos");
   }
 
   return (
@@ -142,6 +152,17 @@ export function LicitacionesTable({ licitaciones, withEstadoFilter = true }: Pro
           </Select>
         )}
 
+        <Select value={revisadaFiltro} onValueChange={(v) => setRevisadaFiltro(v as typeof revisadaFiltro)}>
+          <SelectTrigger className="h-8 w-44 text-xs">
+            <SelectValue placeholder="Revisión" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todas</SelectItem>
+            <SelectItem value="no_revisadas">Sin revisar</SelectItem>
+            <SelectItem value="revisadas">Revisadas</SelectItem>
+          </SelectContent>
+        </Select>
+
         {hayFiltros && (
           <Button variant="ghost" size="sm" onClick={limpiarFiltros} className="h-8 text-xs">
             Limpiar filtros
@@ -159,9 +180,8 @@ export function LicitacionesTable({ licitaciones, withEstadoFilter = true }: Pro
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-28">Prioridad</TableHead>
-              <TableHead>Título</TableHead>
-              <TableHead className="hidden md:table-cell">Organismo</TableHead>
+              <TableHead className="w-16">Acciones</TableHead>
+              <TableHead className="w-72">Título</TableHead>
               <TableHead className="hidden lg:table-cell">Portal</TableHead>
               <TableHead className="hidden lg:table-cell">Rubro</TableHead>
               <TableHead className="hidden md:table-cell text-right">Monto est.</TableHead>
@@ -173,7 +193,7 @@ export function LicitacionesTable({ licitaciones, withEstadoFilter = true }: Pro
           <TableBody>
             {filtradas.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
                   No hay licitaciones con los filtros seleccionados.
                 </TableCell>
               </TableRow>
@@ -191,19 +211,31 @@ export function LicitacionesTable({ licitaciones, withEstadoFilter = true }: Pro
                   )}
                 >
                   <TableCell>
-                    <PrioridadBadge prioridad={lic.prioridad} score={lic.score} />
+                    <div className="flex items-center gap-1">
+                      {lic.estado === "seguimiento" ? (
+                        <span className="flex h-7 w-7 items-center justify-center" title="En seguimiento">
+                          <BookmarkCheck className="size-3.5 text-purple-500" />
+                        </span>
+                      ) : (
+                        <AgregarSeguimientoBtn id={lic.id} />
+                      )}
+                      <MarcarRevisadaBtn id={lic.id} revisada={lic.revisada} />
+                    </div>
                   </TableCell>
-                  <TableCell className="font-medium">
-                    <Link
-                      href={`/licitaciones/${lic.id}`}
-                      className="line-clamp-2 hover:underline"
-                    >
-                      {lic.titulo}
-                    </Link>
-                    <p className="text-xs text-muted-foreground">{lic.numero}</p>
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell max-w-48">
-                    <span className="line-clamp-2 text-sm">{lic.organismo ?? "—"}</span>
+                  <TableCell className="whitespace-normal font-medium">
+                    <div className="flex items-start gap-2">
+                      <PrioridadBadge prioridad={lic.prioridad} score={lic.score} />
+                      <div className="flex flex-col gap-1 min-w-0">
+                        <Link
+                          href={`/licitaciones/${lic.id}`}
+                          className="line-clamp-2 hover:underline leading-snug text-sm"
+                          title={lic.titulo}
+                        >
+                          {lic.titulo}
+                        </Link>
+                        <p className="text-xs text-muted-foreground">{lic.numero}</p>
+                      </div>
+                    </div>
                   </TableCell>
                   <TableCell className="hidden lg:table-cell text-sm">
                     {PORTAL_LABEL[lic.portal]}
@@ -224,9 +256,9 @@ export function LicitacionesTable({ licitaciones, withEstadoFilter = true }: Pro
                   <TableCell>
                     <EstadoBadge estado={lic.estado} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="opacity-0 group-hover:opacity-100 transition-opacity">
                     <Link href={`/licitaciones/${lic.id}`}>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button variant="ghost" size="icon" className="h-7 w-7">
                         <ExternalLink className="size-3.5" />
                       </Button>
                     </Link>
@@ -240,6 +272,7 @@ export function LicitacionesTable({ licitaciones, withEstadoFilter = true }: Pro
     </div>
   );
 }
+
 
 function EstadoBadge({ estado }: { estado: EstadoLicitacion }) {
   const styles: Record<EstadoLicitacion, string> = {
