@@ -15,6 +15,7 @@ const sinDetalle = {
   proveedores_invitados: null,
   url_detalle: null,
   revisada: false,
+  resultado: null,
 } as const;
 
 export const MOCK_LICITACIONES: Licitacion[] = [
