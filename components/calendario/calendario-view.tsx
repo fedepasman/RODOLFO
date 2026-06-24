@@ -49,7 +49,7 @@ export function CalendarioView({ licitaciones, year, month }: Props) {
   const porDia = useMemo(
     () =>
       licitaciones.reduce<Record<string, Licitacion[]>>((acc, l) => {
-        if (!l.fecha_cierre || l.estado !== "seguimiento") return acc;
+        if (!l.fecha_cierre || !["seguimiento", "presentada"].includes(l.estado)) return acc;
         acc[l.fecha_cierre] = [...(acc[l.fecha_cierre] ?? []), l];
         return acc;
       }, {}),
