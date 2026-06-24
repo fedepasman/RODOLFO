@@ -71,7 +71,7 @@ export async function getLicitacionesByEstado(
     .from("licitaciones")
     .select("*")
     .eq("estado", estado)
-    .order("score", { ascending: false });
+    .order("fecha_cierre", { ascending: true });
 
   if (error) {
     console.error("[licitaciones] Error al filtrar por estado:", error.message);

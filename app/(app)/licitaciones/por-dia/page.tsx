@@ -10,8 +10,12 @@ export default async function PorDiaPage({
 }) {
   const { fecha } = await searchParams;
 
-  // Default: hoy en UTC (el workflow guarda en UTC y corre a las 14:00 UTC = 11:00 ARG)
-  const todayStr = new Date().toISOString().split("T")[0];
+  // Default: hoy en zona horaria local (Argentina)
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  const todayStr = `${year}-${month}-${day}`;
   const fechaSeleccionada = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : todayStr;
 
   const [licitaciones, resumen] = await Promise.all([

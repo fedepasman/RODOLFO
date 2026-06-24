@@ -43,12 +43,12 @@ export default async function PresentadasPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-72">Licitación</TableHead>
-                    <TableHead className="hidden lg:table-cell">Portal</TableHead>
-                    <TableHead className="hidden md:table-cell text-right">Monto est.</TableHead>
-                    <TableHead className="hidden sm:table-cell">Cierre</TableHead>
+                    <TableHead>Licitación</TableHead>
+                    <TableHead className="hidden lg:table-cell whitespace-nowrap">Portal</TableHead>
+                    <TableHead className="hidden md:table-cell text-right whitespace-nowrap">Monto</TableHead>
+                    <TableHead className="hidden sm:table-cell whitespace-nowrap">Cierre</TableHead>
                     <TableHead>Resultado</TableHead>
-                    <TableHead className="w-10" />
+                    <TableHead className="w-12" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>

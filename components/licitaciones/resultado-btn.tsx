@@ -67,13 +67,13 @@ export function ResultadoBtn({ id, resultado: initialResultado }: Props) {
           Pendiente
         </SelectItem>
         <SelectItem value="ganada" className="text-xs text-green-700">
-          Ganada ✓
+          Ganada
         </SelectItem>
         <SelectItem value="perdida" className="text-xs text-red-600">
-          Perdida ✗
+          Perdida
         </SelectItem>
         <SelectItem value="desierta" className="text-xs text-amber-600">
-          Desierta —
+          Desierta
         </SelectItem>
       </SelectContent>
     </Select>
