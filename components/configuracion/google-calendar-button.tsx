@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 
 interface GoogleCalendarButtonProps {
   isConnected: boolean;
@@ -63,32 +64,20 @@ export function GoogleCalendarButton({ isConnected }: GoogleCalendarButtonProps)
 
   if (!isConnected) {
     return (
-      <button
-        onClick={handleConnect}
-        disabled={isLoading}
-        className="inline-flex items-center px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-      >
+      <Button onClick={handleConnect} disabled={isLoading} size="sm">
         {isLoading ? "Conectando..." : "Conectar Google Calendar"}
-      </button>
+      </Button>
     );
   }
 
   return (
     <div className="flex gap-2">
-      <button
-        onClick={handleSyncAll}
-        disabled={isLoading}
-        className="inline-flex items-center px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
-      >
+      <Button onClick={handleSyncAll} disabled={isLoading} size="sm">
         {isLoading ? "Sincronizando..." : "Sincronizar todo"}
-      </button>
-      <button
-        onClick={handleDisconnect}
-        disabled={isLoading}
-        className="inline-flex items-center px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
-      >
+      </Button>
+      <Button onClick={handleDisconnect} disabled={isLoading} variant="outline" size="sm">
         {isLoading ? "Desconectando..." : "Desconectar"}
-      </button>
+      </Button>
     </div>
   );
 }
